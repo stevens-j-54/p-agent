@@ -15,6 +15,11 @@ def handle_save_document(workspace, file_path: str, content: str) -> str:
         print(f"    !! Error: {result.get('error')}")
     return json.dumps(result)
 
+def handle_delete_document(workspace, file_path: str) -> str:
+    """Handle the delete_document tool call."""
+    print(f"    -> Deleting document: {file_path}")
+    result = workspace.delete_document(file_path=file_path)
+    return json.dumps(result)
 
 def handle_commit_and_push(workspace, commit_message: str) -> str:
     """Handle the commit_and_push tool call."""
@@ -52,6 +57,12 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
             workspace,
             file_path=tool_input["file_path"],
             content=tool_input["content"]
+        )
+        
+    elif tool_name == "delete_document":
+        return handle_delete_document(
+            workspace,
+            file_path=tool_input["file_path"]
         )
     
     elif tool_name == "commit_and_push":

@@ -86,6 +86,35 @@ class Workspace:
                 "success": False,
                 "error": str(e)
             }
+            
+    def delete_document(self, file_path: str) -> dict:
+        """Delete a document from the workspace."""
+        try:
+            full_path = self.workspace_dir / file_path
+            
+            if not full_path.exists():
+                return {
+                    "success": False,
+                    "error": f"File not found: {file_path}"
+                }
+            
+            # Delete the file
+            full_path.unlink()
+            
+            # Stage the deletion
+            self._run_git(["add", file_path])
+            
+            return {
+                "success": True,
+                "action": "deleted",
+                "path": file_path,
+                "message": f"Document deleted from workspace: {file_path}"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
     def commit_and_push(self, commit_message: str) -> dict:
         """Commit staged changes and push to remote."""

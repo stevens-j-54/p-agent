@@ -22,6 +22,20 @@ TOOLS = [
         }
     },
     {
+        "name": "delete_document",
+        "description": "Delete a document from the workspace. Use commit_and_push afterwards to push the deletion to the repository.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to delete, e.g., 'drafts/old-draft.md'"
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
         "name": "commit_and_push",
         "description": "Commit all current changes in the workspace and push to the GitHub repository. Use this after saving documents to make them available to your employer.",
         "input_schema": {
