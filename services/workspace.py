@@ -30,8 +30,9 @@ class Workspace:
         self.repo_url = f"https://{token}@github.com/{repo_name}.git"
 
         if self.workspace_dir.exists() and (self.workspace_dir / ".git").exists():
-            # Workspace exists - pull latest
+            # Workspace exists - update remote URL and pull latest
             print(f"Workspace exists at {self.workspace_dir}, pulling latest...")
+            self._run_git(["remote", "set-url", "origin", self.repo_url])
             self._run_git(["pull"])
         else:
             # Clone fresh

@@ -11,6 +11,8 @@ def handle_save_document(workspace, file_path: str, content: str) -> str:
         file_path=file_path,
         content=content
     )
+    if not result.get("success"):
+        print(f"    !! Error: {result.get('error')}")
     return json.dumps(result)
 
 
@@ -20,6 +22,10 @@ def handle_commit_and_push(workspace, commit_message: str) -> str:
     result = workspace.commit_and_push(
         commit_message=commit_message
     )
+    if result.get("success"):
+        print(f"    -> {result.get('action')}: {result.get('message')}")
+    else:
+        print(f"    !! Error: {result.get('error')}")
     return json.dumps(result)
 
 

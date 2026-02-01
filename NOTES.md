@@ -87,6 +87,8 @@ I created a new Email Service class in the services folder that handles everythi
 I've noticed that agent replies are sent as new email threads, not replies to the original thread. I'm going to 
 It looks like the id being used was the gmail internal ID, as opposed to the correct message ID header.
 
+Now noticed that when I request it to update files, it does it just fine locally, but the changes aren't pushed to the repo.
+Found the issue. It was silently failing. when the workspace already existed, the remote URL wasn't being updated with the authenticated token.
 
 
 
