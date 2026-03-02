@@ -90,8 +90,8 @@ class EmailAgent:
     def is_authorized_sender(self, sender):
         """Check if sender is in authorized list."""
         if not AUTHORIZED_SENDERS:
-            logger.warning("No authorized senders configured — accepting all emails")
-            return True
+            logger.error("No authorized senders configured — rejecting all emails")
+            return False
 
         email = sender
         if '<' in sender:
