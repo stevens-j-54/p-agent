@@ -69,6 +69,19 @@ class GitRepo:
             logger.error("Pull failed for %s: %s", self.repo_name, e)
             return {"success": False, "error": str(e)}
 
+    def checkout_branch(self, branch_name: str) -> dict:
+        """Fetch from origin and check out a branch locally."""
+        try:
+            self._run_git(["fetch", "origin"])
+            self._run_git(["checkout", branch_name])
+            logger.info("Checked out branch: %s", branch_name)
+            return {"success": True, "branch": branch_name}
+        except subprocess.CalledProcessError as e:
+            logger.error("Checkout failed for branch %s: %s", branch_name, e.stderr)
+            return {"success": False, "error": f"Git error: {e.stderr}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def list_files(self) -> dict:
         """List all files in the repo."""
         try:
