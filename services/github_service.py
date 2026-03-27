@@ -8,7 +8,7 @@ import os
 from github import Github
 from github.GithubException import GithubException
 
-from config import GITHUB_USERNAME
+from config import GITHUB_USERNAME, UPSTREAM_CODEBASE_REPO
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,20 @@ class GitHubService:
             repo_name = f"{self.username}/{repo_name}"
         return self.github.get_repo(repo_name)
 
+    def _github_error(self, e: GithubException) -> dict:
+        """Extract a detailed error dict from a GithubException, including validation errors."""
+        data = e.data or {}
+        message = data.get('message', str(e))
+        errors = data.get('errors', [])
+        logger.error(
+            "GitHub API error %s: %s | errors: %s | full data: %s",
+            e.status, message, errors, data
+        )
+        detail = f"GitHub error {e.status}: {message}"
+        if errors:
+            detail += f" | details: {errors}"
+        return {"success": False, "error": detail, "github_errors": errors}
+
     def create_repo(self, name: str, description: str = "", private: bool = True) -> dict:
         """Create a new GitHub repository."""
         try:
@@ -54,8 +68,7 @@ class GitHubService:
                 "message": f"Repository created: {repo.full_name}"
             }
         except GithubException as e:
-            logger.error("GitHub API error: %s", e.data.get('message', str(e)))
-            return {"success": False, "error": f"GitHub error: {e.data.get('message', str(e))}"}
+            return self._github_error(e)
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -91,8 +104,7 @@ class GitHubService:
                 "message": f"Issue #{issue.number} created: {issue.title}"
             }
         except GithubException as e:
-            logger.error("GitHub API error: %s", e.data.get('message', str(e)))
-            return {"success": False, "error": f"GitHub error: {e.data.get('message', str(e))}"}
+            return self._github_error(e)
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -112,8 +124,7 @@ class GitHubService:
                 "message": f"Branch '{branch_name}' created from '{from_branch}'"
             }
         except GithubException as e:
-            logger.error("GitHub API error: %s", e.data.get('message', str(e)))
-            return {"success": False, "error": f"GitHub error: {e.data.get('message', str(e))}"}
+            return self._github_error(e)
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -138,8 +149,7 @@ class GitHubService:
                 "message": f"Merged '{head_branch}' into '{base_branch}' ({result.sha[:7]})"
             }
         except GithubException as e:
-            logger.error("GitHub API error: %s", e.data.get('message', str(e)))
-            return {"success": False, "error": f"GitHub error: {e.data.get('message', str(e))}"}
+            return self._github_error(e)
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -162,8 +172,7 @@ class GitHubService:
                 "message": f"PR #{pr.number} created: {pr.title}"
             }
         except GithubException as e:
-            logger.error("GitHub API error: %s", e.data.get('message', str(e)))
-            return {"success": False, "error": f"GitHub error: {e.data.get('message', str(e))}"}
+            return self._github_error(e)
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -171,16 +180,17 @@ class GitHubService:
                          base_branch: str = "main") -> dict:
         """Open a PR from our fork against the upstream repository.
 
-        The upstream repo is determined by inspecting the fork's parent.
+        Uses UPSTREAM_CODEBASE_REPO from config to identify the upstream.
         The head is formatted as 'fork-owner:branch' as required by GitHub's API.
         """
         try:
-            fork_repo = self._get_repo("p-agent")
-            if not fork_repo.fork:
-                return {"success": False, "error": "p-agent is not a fork — cannot open upstream PR"}
-
-            upstream_repo = fork_repo.parent
+            upstream_repo = self.github.get_repo(UPSTREAM_CODEBASE_REPO)
             head = f"{self.username}:{branch_name}"
+
+            logger.info(
+                "Opening upstream PR: upstream=%s head=%s base=%s",
+                UPSTREAM_CODEBASE_REPO, head, base_branch
+            )
 
             pr = upstream_repo.create_pull(
                 title=title,
@@ -196,7 +206,6 @@ class GitHubService:
                 "message": f"Upstream PR #{pr.number} created: {pr.title}"
             }
         except GithubException as e:
-            logger.error("GitHub API error: %s", e.data.get('message', str(e)))
-            return {"success": False, "error": f"GitHub error: {e.data.get('message', str(e))}"}
+            return self._github_error(e)
         except Exception as e:
             return {"success": False, "error": str(e)}
