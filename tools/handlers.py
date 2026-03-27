@@ -4,9 +4,6 @@ Tool Handlers
 
 import json
 import logging
-import subprocess
-
-from config import CODEBASE_REPO_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +114,20 @@ def handle_create_branch(github, repo_name: str, branch_name: str, from_branch: 
     return json.dumps(result)
 
 
+def handle_merge_branch(github, repo_name: str, head_branch: str,
+                        base_branch: str = "main", commit_message: str = "") -> str:
+    logger.info("[%s] Merging branch: %s -> %s", repo_name, head_branch, base_branch)
+    result = github.merge_branch(
+        repo_name=repo_name,
+        head_branch=head_branch,
+        base_branch=base_branch,
+        commit_message=commit_message
+    )
+    if not result.get("success"):
+        logger.error("Tool error: %s", result.get('error'))
+    return json.dumps(result)
+
+
 def handle_create_pull_request(github, repo_name: str, title: str, body: str,
                                head_branch: str, base_branch: str = "main") -> str:
     logger.info("[%s] Creating PR: %s", repo_name, title)
@@ -124,33 +135,6 @@ def handle_create_pull_request(github, repo_name: str, title: str, body: str,
         repo_name=repo_name, title=title, body=body,
         head_branch=head_branch, base_branch=base_branch
     )
-    if not result.get("success"):
-        logger.error("Tool error: %s", result.get('error'))
-    return json.dumps(result)
-
-
-# --- Codebase handlers ---
-
-def handle_create_codebase_branch(github, get_workspace, branch_name: str) -> str:
-    logger.info("Creating codebase branch: %s", branch_name)
-    result = github.create_branch(CODEBASE_REPO_NAME, branch_name, from_branch="main")
-    if not result.get("success"):
-        logger.error("Tool error: %s", result.get('error'))
-        return json.dumps(result)
-    try:
-        ws = get_workspace(CODEBASE_REPO_NAME)
-        ws._run_git(["fetch", "origin"])
-        ws._run_git(["checkout", "-b", branch_name, f"origin/{branch_name}"])
-        return json.dumps({"success": True, "branch": branch_name,
-                           "message": f"Branch '{branch_name}' created and checked out locally"})
-    except subprocess.CalledProcessError as e:
-        logger.error("Git checkout failed: %s", e.stderr)
-        return json.dumps({"success": False, "error": f"Branch created on GitHub but local checkout failed: {e.stderr}"})
-
-
-def handle_open_upstream_pr(github, title: str, body: str, branch_name: str) -> str:
-    logger.info("Opening upstream PR: %s (branch: %s)", title, branch_name)
-    result = github.open_upstream_pr(title=title, body=body, branch_name=branch_name)
     if not result.get("success"):
         logger.error("Tool error: %s", result.get('error'))
     return json.dumps(result)
@@ -266,6 +250,13 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
                                     branch_name=tool_input["branch_name"],
                                     from_branch=tool_input.get("from_branch", "main"))
 
+    elif tool_name == "merge_branch":
+        return handle_merge_branch(github,
+                                   repo_name=tool_input["repo_name"],
+                                   head_branch=tool_input["head_branch"],
+                                   base_branch=tool_input.get("base_branch", "main"),
+                                   commit_message=tool_input.get("commit_message", ""))
+
     elif tool_name == "create_pull_request":
         return handle_create_pull_request(github,
                                           repo_name=tool_input["repo_name"],
@@ -273,16 +264,6 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
                                           body=tool_input["body"],
                                           head_branch=tool_input["head_branch"],
                                           base_branch=tool_input.get("base_branch", "main"))
-
-    elif tool_name == "create_codebase_branch":
-        return handle_create_codebase_branch(github, get_workspace,
-                                             branch_name=tool_input["branch_name"])
-
-    elif tool_name == "open_upstream_pr":
-        return handle_open_upstream_pr(github,
-                                       title=tool_input["title"],
-                                       body=tool_input["body"],
-                                       branch_name=tool_input["branch_name"])
 
     elif tool_name == "list_agent_core":
         return handle_list_agent_core(agent_core)

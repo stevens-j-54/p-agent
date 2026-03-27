@@ -218,6 +218,33 @@ TOOLS = [
         }
     },
     {
+        "name": "merge_branch",
+        "description": "Merge a branch into a base branch in a repository. Use this to merge feature branches into main on our own fork. Do NOT use this to merge into the upstream repository — use open_upstream_pr for that.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo_name": {
+                    "type": "string",
+                    "description": "Name of the repository."
+                },
+                "head_branch": {
+                    "type": "string",
+                    "description": "The branch to merge in (the source branch)."
+                },
+                "base_branch": {
+                    "type": "string",
+                    "description": "The branch to merge into. Defaults to 'main'.",
+                    "default": "main"
+                },
+                "commit_message": {
+                    "type": "string",
+                    "description": "Optional commit message for the merge. If omitted, a default message is used."
+                }
+            },
+            "required": ["repo_name", "head_branch"]
+        }
+    },
+    {
         "name": "create_pull_request",
         "description": "Create a pull request in a repository.",
         "input_schema": {
@@ -246,43 +273,6 @@ TOOLS = [
                 }
             },
             "required": ["repo_name", "title", "body", "head_branch"]
-        }
-    },
-    # --- Codebase tools ---
-    {
-        "name": "create_codebase_branch",
-        "description": "Create a new feature branch in your codebase fork and check it out locally. Always call this before editing any codebase files.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "branch_name": {
-                    "type": "string",
-                    "description": "Branch name, e.g. 'feat/add-logging' or 'fix/email-retry'. Use lowercase with hyphens."
-                }
-            },
-            "required": ["branch_name"]
-        }
-    },
-    {
-        "name": "open_upstream_pr",
-        "description": "Open a pull request from your codebase fork to the upstream p-agent repository. The PR requires human review and approval before it is merged and deployed. Write a clear body explaining what changed and why.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Pull request title. Concise and descriptive."
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Pull request description explaining what changed and why. Markdown supported."
-                },
-                "branch_name": {
-                    "type": "string",
-                    "description": "The branch in your fork that contains the changes."
-                }
-            },
-            "required": ["title", "body", "branch_name"]
         }
     },
     # --- Agent-core tools ---

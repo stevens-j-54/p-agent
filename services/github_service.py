@@ -8,7 +8,7 @@ import os
 from github import Github
 from github.GithubException import GithubException
 
-from config import GITHUB_USERNAME, UPSTREAM_CODEBASE_REPO
+from config import GITHUB_USERNAME
 
 logger = logging.getLogger(__name__)
 
@@ -117,25 +117,25 @@ class GitHubService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def open_upstream_pr(self, title: str, body: str, branch_name: str) -> dict:
-        """Open a PR from the agent's codebase fork to the upstream repo."""
+    def merge_branch(self, repo_name: str, head_branch: str, base_branch: str = "main",
+                     commit_message: str = "") -> dict:
+        """Merge a branch into a base branch in a repository."""
         try:
-            if not UPSTREAM_CODEBASE_REPO:
-                return {"success": False, "error": "UPSTREAM_CODEBASE_REPO is not configured"}
-            upstream_repo = self.github.get_repo(UPSTREAM_CODEBASE_REPO)
-            head = f"{self.username}:{branch_name}"
-            pr = upstream_repo.create_pull(
-                title=title,
-                body=body,
-                head=head,
-                base="main"
-            )
+            repo = self._get_repo(repo_name)
+            merge_message = commit_message or f"Merge '{head_branch}' into '{base_branch}'"
+            result = repo.merge(base=base_branch, head=head_branch, commit_message=merge_message)
+            if result is None:
+                # No-op merge: head is already up to date with base
+                return {
+                    "success": True,
+                    "merged": False,
+                    "message": f"'{head_branch}' is already up to date with '{base_branch}' — nothing to merge"
+                }
             return {
                 "success": True,
-                "number": pr.number,
-                "title": pr.title,
-                "url": pr.html_url,
-                "message": f"PR #{pr.number} opened against {UPSTREAM_CODEBASE_REPO}: {pr.title}"
+                "merged": True,
+                "sha": result.sha,
+                "message": f"Merged '{head_branch}' into '{base_branch}' ({result.sha[:7]})"
             }
         except GithubException as e:
             logger.error("GitHub API error: %s", e.data.get('message', str(e)))
