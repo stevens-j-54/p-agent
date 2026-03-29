@@ -4,7 +4,6 @@ AgentCore service - manages the agent's personality and configuration repo
 
 import logging
 import os
-import subprocess
 
 from github import Github
 from github.GithubException import GithubException
@@ -87,61 +86,9 @@ class AgentCore(GitRepo):
             self._run_git(["push"])
             logger.info("Agent-core seeded successfully")
 
-    def create_file(self, file_path: str, content: str, commit_message: str) -> dict:
-        """Create a new file in agent-core, commit, and push."""
-        try:
-            full_path = self.repo_dir / file_path
-
-            if full_path.exists():
-                return {
-                    "success": False,
-                    "error": f"File already exists: {file_path}. Use update_file to modify it."
-                }
-
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content)
-
-            self._run_git(["add", file_path])
-            self._run_git(["commit", "-m", commit_message])
-            self._run_git(["push"])
-
-            return {
-                "success": True,
-                "action": "created",
-                "path": file_path,
-                "message": f"Created and pushed: {file_path}"
-            }
-        except subprocess.CalledProcessError as e:
-            logger.error("Git error creating %s: %s", file_path, e.stderr)
-            return {"success": False, "error": f"Git error: {e.stderr}"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    def update_file(self, file_path: str, content: str, commit_message: str) -> dict:
-        """Update an existing file in agent-core, commit, and push."""
-        try:
-            full_path = self.repo_dir / file_path
-
-            if not full_path.exists():
-                return {
-                    "success": False,
-                    "error": f"File not found: {file_path}. Use create_file for new files."
-                }
-
-            full_path.write_text(content)
-
-            self._run_git(["add", file_path])
-            self._run_git(["commit", "-m", commit_message])
-            self._run_git(["push"])
-
-            return {
-                "success": True,
-                "action": "updated",
-                "path": file_path,
-                "message": f"Updated and pushed: {file_path}"
-            }
-        except subprocess.CalledProcessError as e:
-            logger.error("Git error updating %s: %s", file_path, e.stderr)
-            return {"success": False, "error": f"Git error: {e.stderr}"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+    def upsert_file(self, file_path: str, content: str, commit_message: str) -> dict:
+        """Create or update a file in agent-core, commit, and push."""
+        write_result = self.write_file(file_path, content)
+        if not write_result.get("success"):
+            return write_result
+        return self.commit_and_push(commit_message)

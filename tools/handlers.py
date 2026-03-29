@@ -178,31 +178,19 @@ def handle_read_agent_core(agent_core, file_path: str) -> str:
 
 def handle_create_agent_core(agent_core, file_path: str, content: str, commit_message: str) -> str:
     logger.info("Creating agent-core file: %s", file_path)
-    result = agent_core.create_file(
-        file_path=file_path,
-        content=content,
-        commit_message=commit_message
-    )
+    result = agent_core.upsert_file(file_path=file_path, content=content, commit_message=commit_message)
     return json.dumps(result)
 
 
 def handle_update_memory(agent_core, content: str, commit_message: str) -> str:
     logger.info("Updating memory: %s", commit_message)
-    result = agent_core.update_file(
-        file_path="MEMORY.md",
-        content=content,
-        commit_message=commit_message
-    )
+    result = agent_core.upsert_file(file_path="MEMORY.md", content=content, commit_message=commit_message)
     return json.dumps(result)
 
 
 def handle_update_agent_core(agent_core, file_path: str, content: str, commit_message: str) -> str:
     logger.info("Updating agent-core file: %s", file_path)
-    result = agent_core.update_file(
-        file_path=file_path,
-        content=content,
-        commit_message=commit_message
-    )
+    result = agent_core.upsert_file(file_path=file_path, content=content, commit_message=commit_message)
     return json.dumps(result)
 
 

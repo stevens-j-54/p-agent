@@ -18,7 +18,7 @@ from config import (
     CLAUDE_MODEL,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_AUTHORIZED_IDS,
-    TELEGRAM_SESSIONS_FILE,
+    AGENT_CORE_DIR,
 )
 from prompts import load_system_prompt, EMAIL_RECEIVED_TEMPLATE, TELEGRAM_MESSAGE_TEMPLATE
 from tools import TOOLS, handle_tool_call
@@ -129,11 +129,12 @@ class EmailAgent:
         return self
 
     def _load_telegram_sessions(self) -> dict:
-        """Load persisted Telegram session histories from disk."""
-        if not TELEGRAM_SESSIONS_FILE.exists():
+        """Load persisted Telegram session histories from agent-core."""
+        sessions_path = AGENT_CORE_DIR / "telegram_sessions.json"
+        if not sessions_path.exists():
             return {}
         try:
-            data = json.loads(TELEGRAM_SESSIONS_FILE.read_text())
+            data = json.loads(sessions_path.read_text())
             # JSON keys are always strings; convert back to int chat IDs
             return {int(k): v for k, v in data.items()}
         except Exception as e:
@@ -141,11 +142,14 @@ class EmailAgent:
             return {}
 
     def _save_telegram_sessions(self):
-        """Persist Telegram session histories to disk."""
-        try:
-            TELEGRAM_SESSIONS_FILE.write_text(json.dumps(self._telegram_sessions))
-        except Exception as e:
-            logger.error("Failed to save Telegram sessions: %s", e)
+        """Persist Telegram session histories to agent-core, committing and pushing."""
+        result = self.agent_core.upsert_file(
+            "telegram_sessions.json",
+            json.dumps(self._telegram_sessions, indent=2),
+            "Update Telegram session history",
+        )
+        if not result.get("success"):
+            logger.error("Failed to save Telegram sessions: %s", result.get("error"))
 
     def is_authorized_sender(self, sender):
         """Check if an email sender is in the authorized list."""

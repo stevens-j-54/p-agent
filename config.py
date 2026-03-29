@@ -33,4 +33,3 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_AUTHORIZED_IDS = json.loads(os.getenv("TELEGRAM_AUTHORIZED_IDS", "[]"))
-TELEGRAM_SESSIONS_FILE = Path("./telegram_sessions.json")
