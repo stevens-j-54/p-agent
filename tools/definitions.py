@@ -173,6 +173,25 @@ TOOLS = [
         }
     },
     {
+        "name": "delete_repo",
+        "description": "Permanently delete a GitHub repository owned by this account. This is irreversible. Only repositories belonging to this account can be deleted. Requires confirm=true to proceed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo_name": {
+                    "type": "string",
+                    "description": "Name of the repository to delete. Use the short name (e.g. 'old-project'), not the full GitHub path. Only own-account repos can be deleted."
+                },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Must be set to true to confirm deletion. This operation is permanent and cannot be undone.",
+                    "default": False
+                }
+            },
+            "required": ["repo_name", "confirm"]
+        }
+    },
+    {
         "name": "create_issue",
         "description": "Create a GitHub issue in a repository. Useful for tracking tasks, bugs, or ideas.",
         "input_schema": {

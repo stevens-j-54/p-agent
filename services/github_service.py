@@ -74,6 +74,49 @@ class GitHubService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def delete_repo(self, repo_name: str, confirm: bool = False) -> dict:
+        """Delete a GitHub repository owned by this account.
+
+        Requires confirm=True to proceed. Only repos owned by GITHUB_USERNAME
+        can be deleted — this method refuses to delete repos belonging to other
+        accounts or organisations.
+        """
+        if not confirm:
+            return {
+                "success": False,
+                "error": (
+                    "Deletion refused: confirm=True is required to delete a repository. "
+                    "This operation is irreversible."
+                )
+            }
+        try:
+            # Resolve to a short name for the ownership check
+            short_name = repo_name.split("/")[-1] if "/" in repo_name else repo_name
+            full_name = f"{self.username}/{short_name}"
+
+            repo = self.github.get_repo(full_name)
+
+            # Safety check: only delete repos we own
+            if repo.owner.login.lower() != self.username.lower():
+                return {
+                    "success": False,
+                    "error": (
+                        f"Deletion refused: repo '{repo.full_name}' is not owned by "
+                        f"'{self.username}'. Only own-account repos can be deleted."
+                    )
+                }
+
+            repo.delete()
+            return {
+                "success": True,
+                "deleted": full_name,
+                "message": f"Repository '{full_name}' has been permanently deleted."
+            }
+        except GithubException as e:
+            return self._github_error(e)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def list_repos(self) -> dict:
         """List all repositories for the account."""
         try:
