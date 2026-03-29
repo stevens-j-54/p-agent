@@ -5,7 +5,6 @@ Email service - handles Gmail API operations
 import logging
 import os
 import base64
-import re
 from email.mime.text import MIMEText
 
 from google.auth.transport.requests import Request
@@ -15,6 +14,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from config import SCOPES
+from utils.email_utils import strip_reply_prefix, extract_body
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class EmailService:
             sender = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'unknown')
             message_id = next((h['value'] for h in headers if h['name'].lower() == 'message-id'), None)
 
-            body = self._extract_body(message['payload'])
+            body = extract_body(message['payload'])
 
             return {
                 'id': msg_id,
@@ -104,30 +104,12 @@ class EmailService:
             logger.error("Failed to get email details for %s: %s", msg_id, error)
             return None
 
-    def _extract_body(self, payload):
-        """Extract plain text body from email payload."""
-        if 'body' in payload and payload['body'].get('data'):
-            return base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
-
-        if 'parts' in payload:
-            for part in payload['parts']:
-                if part['mimeType'] == 'text/plain':
-                    if part['body'].get('data'):
-                        return base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-                elif 'parts' in part:
-                    result = self._extract_body(part)
-                    if result:
-                        return result
-
-        return "(could not extract body)"
-
     def send_reply(self, original_email, reply_text):
         """Send a reply to an email."""
         try:
             message = MIMEText(reply_text)
             message['to'] = original_email['sender']
-            base_subject = re.sub(r'^(Re:\s*)+', '', original_email['subject'], flags=re.IGNORECASE)
-            message['subject'] = f"Re: {base_subject}"
+            message['subject'] = f"Re: {strip_reply_prefix(original_email['subject'])}"
             if original_email.get('message_id'):
                 message['In-Reply-To'] = original_email['message_id']
                 message['References'] = original_email['message_id']
@@ -169,7 +151,7 @@ class EmailService:
                     continue
                 label_ids = msg.get('labelIds', [])
                 role = 'assistant' if 'SENT' in label_ids else 'user'
-                body = self._extract_body(msg['payload'])
+                body = extract_body(msg['payload'])
                 history.append({'role': role, 'content': body})
 
             return history[-10:]

@@ -17,15 +17,15 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install ".[dev]"
 
       - name: Syntax check
         run: |
           python -m py_compile agent.py config.py
+          python -m py_compile utils/*.py
           python -m py_compile services/*.py
           python -m py_compile tools/*.py
           python -m py_compile prompts/*.py
 
-      # Add test execution here as the test suite grows:
-      # - name: Run tests
-      #   run: pytest tests/ -v
+      - name: Run tests
+        run: pytest tests/ -v

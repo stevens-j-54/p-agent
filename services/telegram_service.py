@@ -54,7 +54,7 @@ class TelegramService:
             logger.error("Failed to get Telegram updates: %s", e)
             return []
 
-    def send_message(self, chat_id: int, text: str) -> dict | None:
+    def send_message(self, chat_id: int, text: str) -> dict:
         """Send a text message to a chat."""
         try:
             resp = requests.post(

@@ -17,12 +17,12 @@ from config import (
     AUTHORIZED_SENDERS,
     CLAUDE_MODEL,
     TELEGRAM_BOT_TOKEN,
-    TELEGRAM_AUTHORIZED_IDS,
     AGENT_CORE_DIR,
 )
 from prompts import load_system_prompt, EMAIL_RECEIVED_TEMPLATE, TELEGRAM_MESSAGE_TEMPLATE
 from tools import TOOLS, handle_tool_call
 from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService
+from utils import build_messages, is_authorized_email_sender, is_authorized_telegram_user
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,27 +34,6 @@ logger = logging.getLogger(__name__)
 
 MAX_TELEGRAM_HISTORY = 20  # message turns to keep per chat session
 
-
-def _build_messages(thread_history, current_message):
-    """
-    Build the Claude messages array from thread history + current email.
-
-    Merges consecutive same-role messages (e.g. two user emails in a row)
-    and drops any leading assistant message, since Claude requires the first
-    message to be from the user.
-    """
-    merged = []
-    for msg in thread_history:
-        if merged and merged[-1]['role'] == msg['role']:
-            merged[-1]['content'] += '\n\n---\n\n' + msg['content']
-        else:
-            merged.append({'role': msg['role'], 'content': msg['content']})
-
-    if merged and merged[0]['role'] == 'assistant':
-        merged = merged[1:]
-
-    merged.append({"role": "user", "content": current_message})
-    return merged
 
 
 class EmailAgent:
@@ -175,30 +154,12 @@ class EmailAgent:
         if not result.get("success"):
             logger.error("Failed to save Telegram sessions: %s", result.get("error"))
 
-    def is_authorized_sender(self, sender):
-        """Check if an email sender is in the authorized list."""
-        if not AUTHORIZED_SENDERS:
-            logger.error("No authorized senders configured — rejecting all emails")
-            return False
-
-        email = sender
-        if '<' in sender:
-            email = sender.split('<')[1].split('>')[0]
-
-        return email.lower() in [s.lower() for s in AUTHORIZED_SENDERS]
-
-    def is_authorized_telegram_user(self, user_id: int) -> bool:
-        """Check if a Telegram user ID is in the authorized list."""
-        if not TELEGRAM_AUTHORIZED_IDS:
-            logger.error("No authorized Telegram users configured — rejecting all messages")
-            return False
-        return user_id in TELEGRAM_AUTHORIZED_IDS
-
     def _run_claude(self, messages: list, system_prompt: str) -> str:
         """
         Core Claude tool-use loop shared by all channels.
         Runs until Claude stops requesting tools, then returns the final text response.
         """
+        messages = list(messages)  # own the defensive copy; callers' lists are not mutated
         try:
             response = self.claude.messages.create(
                 model=CLAUDE_MODEL,
@@ -252,7 +213,7 @@ class EmailAgent:
         thread_history = self.email_service.get_thread_context(
             email['thread_id'], email['id']
         )
-        messages = _build_messages(thread_history, user_message)
+        messages = build_messages(thread_history, user_message)
         return self._run_claude(messages, system_prompt)
 
     def process_telegram_update(self, update: dict) -> str:
@@ -283,8 +244,7 @@ class EmailAgent:
         )
         history.append({"role": "user", "content": user_content})
 
-        # Pass a copy so intermediate tool-call messages don't pollute session history
-        response = self._run_claude(list(history), system_prompt)
+        response = self._run_claude(history, system_prompt)
 
         history.append({"role": "assistant", "content": response})
 
@@ -332,7 +292,7 @@ def run_agent():
 
                     logger.info("Email from: %s | Subject: %s", email['sender'], email['subject'])
 
-                    if not agent.is_authorized_sender(email['sender']):
+                    if not is_authorized_email_sender(email['sender']):
                         logger.warning("Skipping unauthorized sender: %s", email['sender'])
                         agent.email_service.mark_as_read(email['id'])
                         continue
@@ -368,7 +328,7 @@ def run_agent():
                     user_id = message.get('from', {}).get('id')
                     chat_id = message['chat']['id']
 
-                    if not agent.is_authorized_telegram_user(user_id):
+                    if not is_authorized_telegram_user(user_id):
                         logger.warning("Skipping unauthorized Telegram user: %s", user_id)
                         continue
 
