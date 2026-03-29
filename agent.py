@@ -273,7 +273,7 @@ def run_agent():
 
     logger.info("Polling interval: %ss | Authorized senders: %s",
                 POLL_INTERVAL_SECONDS, AUTHORIZED_SENDERS or "ALL (not configured)")
-    logger.info("Agent running")
+    logger.info("Agent is running")
 
     while True:
         try:
