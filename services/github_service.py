@@ -262,6 +262,8 @@ class GitHubService:
         # Brief pause to let GitHub queue the run after a fresh push
         time.sleep(5)
 
+        no_run_deadline = time.time() + 60  # give up if no run appears within 60s
+
         while time.time() < deadline:
             try:
                 resp = requests.get(
@@ -274,6 +276,11 @@ class GitHubService:
                 runs = resp.json().get("workflow_runs", [])
 
                 if not runs:
+                    if time.time() > no_run_deadline:
+                        return {
+                            "success": False,
+                            "error": "No CI workflow run appeared within 60s — Actions may be disabled on this repo.",
+                        }
                     time.sleep(10)
                     continue
 

@@ -75,7 +75,7 @@ class EmailAgent:
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
 
-        self.claude = anthropic.Anthropic(api_key=api_key, max_retries=5)
+        self.claude = anthropic.Anthropic(api_key=api_key, max_retries=10)
         logger.info("Claude client initialised (model: %s)", CLAUDE_MODEL)
         return self
 
