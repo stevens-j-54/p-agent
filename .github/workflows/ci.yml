@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - main  # main only receives merges from approved PRs, no need to re-run CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        run: |
+          python -m py_compile agent.py config.py
+          python -m py_compile services/*.py
+          python -m py_compile tools/*.py
+          python -m py_compile prompts/*.py
+
+      # Add test execution here as the test suite grows:
+      # - name: Run tests
+      #   run: pytest tests/ -v

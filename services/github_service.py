@@ -4,11 +4,13 @@ GitHubService - GitHub API operations for repo and project management
 
 import logging
 import os
+import time
 
+import requests
 from github import Github
 from github.GithubException import GithubException
 
-from config import GITHUB_USERNAME, UPSTREAM_CODEBASE_REPO
+from config import GITHUB_USERNAME, CODEBASE_REPO_NAME, UPSTREAM_CODEBASE_REPO
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +177,147 @@ class GitHubService:
             return self._github_error(e)
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def sync_fork_with_upstream(self) -> dict:
+        """
+        Sync the fork's main branch with upstream main using GitHub's merge-upstream API.
+        This is a remote-to-remote operation — no local git required.
+        """
+        try:
+            token = os.environ.get('GITHUB_TOKEN')
+            response = requests.post(
+                f"https://api.github.com/repos/{self.username}/{CODEBASE_REPO_NAME}/merge-upstream",
+                json={"branch": "main"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                },
+                timeout=15,
+            )
+            if response.status_code == 200:
+                msg = response.json().get("message", "Fork synced with upstream")
+                return {"success": True, "message": msg}
+            return {
+                "success": False,
+                "error": f"GitHub API {response.status_code}: {response.text[:200]}",
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def cleanup_merged_branches(self) -> dict:
+        """
+        Delete feature branches on the fork whose PRs have been merged upstream.
+        Queries the upstream repo for closed/merged PRs originating from this fork.
+        """
+        try:
+            upstream_repo = self.github.get_repo(UPSTREAM_CODEBASE_REPO)
+            fork_repo = self._get_repo(CODEBASE_REPO_NAME)
+            fork_full_name = f"{self.username}/{CODEBASE_REPO_NAME}"
+
+            merged_branches = set()
+            for pr in upstream_repo.get_pulls(state="closed", base="main"):
+                if (
+                    pr.merged
+                    and pr.head.repo
+                    and pr.head.repo.full_name == fork_full_name
+                    and pr.head.ref != "main"
+                ):
+                    merged_branches.add(pr.head.ref)
+
+            deleted = []
+            for branch_name in merged_branches:
+                try:
+                    fork_repo.get_git_ref(f"heads/{branch_name}").delete()
+                    deleted.append(branch_name)
+                    logger.info("Deleted merged branch: %s", branch_name)
+                except GithubException:
+                    pass  # already deleted or doesn't exist
+
+            return {"success": True, "deleted": deleted}
+        except GithubException as e:
+            return self._github_error(e)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def check_ci_status(self, repo_name: str, branch_name: str,
+                        timeout_seconds: int = 300) -> dict:
+        """
+        Wait for the latest CI workflow run on a branch to complete and return
+        the result. Polls every 15 seconds up to timeout_seconds.
+
+        On failure, returns the names of the jobs and steps that failed so the
+        agent can diagnose and fix the issue before opening a PR.
+        """
+        if "/" not in repo_name:
+            repo_name = f"{self.username}/{repo_name}"
+
+        token = os.environ.get('GITHUB_TOKEN')
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        }
+        base_url = f"https://api.github.com/repos/{repo_name}"
+        deadline = time.time() + timeout_seconds
+
+        # Brief pause to let GitHub queue the run after a fresh push
+        time.sleep(5)
+
+        while time.time() < deadline:
+            try:
+                resp = requests.get(
+                    f"{base_url}/actions/runs",
+                    params={"branch": branch_name, "per_page": 1},
+                    headers=headers,
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                runs = resp.json().get("workflow_runs", [])
+
+                if not runs:
+                    time.sleep(10)
+                    continue
+
+                run = runs[0]
+
+                if run["status"] != "completed":
+                    logger.debug("CI run %s status: %s", run["id"], run["status"])
+                    time.sleep(15)
+                    continue
+
+                conclusion = run.get("conclusion")
+                result = {
+                    "success": True,
+                    "passed": conclusion == "success",
+                    "conclusion": conclusion,
+                    "run_url": run["html_url"],
+                }
+
+                if conclusion != "success":
+                    jobs_resp = requests.get(
+                        f"{base_url}/actions/runs/{run['id']}/jobs",
+                        headers=headers,
+                        timeout=10,
+                    )
+                    jobs_resp.raise_for_status()
+                    failed_steps = []
+                    for job in jobs_resp.json().get("jobs", []):
+                        if job["conclusion"] not in ("success", "skipped"):
+                            for step in job.get("steps", []):
+                                if step["conclusion"] not in ("success", "skipped", None):
+                                    failed_steps.append({
+                                        "job": job["name"],
+                                        "step": step["name"],
+                                        "conclusion": step["conclusion"],
+                                    })
+                    result["failed_steps"] = failed_steps
+
+                return result
+
+            except Exception as e:
+                logger.error("Error polling CI status: %s", e)
+                time.sleep(15)
+
+        return {"success": False, "error": f"Timed out after {timeout_seconds}s waiting for CI"}
 
     def open_upstream_pr(self, title: str, body: str, branch_name: str,
                          base_branch: str = "main") -> dict:

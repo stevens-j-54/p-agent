@@ -148,6 +148,17 @@ def handle_create_pull_request(github, repo_name: str, title: str, body: str,
     return json.dumps(result)
 
 
+def handle_check_ci_status(github, repo_name: str, branch_name: str) -> str:
+    logger.info("[%s] Checking CI status for branch: %s", repo_name, branch_name)
+    result = github.check_ci_status(repo_name=repo_name, branch_name=branch_name)
+    if result.get("passed"):
+        logger.info("CI passed for %s/%s", repo_name, branch_name)
+    elif result.get("success"):
+        logger.warning("CI failed for %s/%s: %s", repo_name, branch_name,
+                       result.get("failed_steps"))
+    return json.dumps(result)
+
+
 def handle_open_upstream_pr(github, title: str, body: str,
                             branch_name: str, base_branch: str = "main") -> str:
     logger.info("Opening upstream PR: %s (branch: %s)", title, branch_name)
@@ -274,6 +285,11 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
                                           body=tool_input["body"],
                                           head_branch=tool_input["head_branch"],
                                           base_branch=tool_input.get("base_branch", "main"))
+
+    elif tool_name == "check_ci_status":
+        return handle_check_ci_status(github,
+                                      repo_name=tool_input["repo_name"],
+                                      branch_name=tool_input["branch_name"])
 
     elif tool_name == "open_upstream_pr":
         return handle_open_upstream_pr(github,

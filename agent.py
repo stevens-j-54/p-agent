@@ -117,6 +117,30 @@ class EmailAgent:
         self.agent_core.init()
         return self
 
+    def sync_codebase(self):
+        """
+        Sync fork main with upstream and clean up merged branches.
+        Also pulls the local p-agent workspace if already initialised so it
+        stays in sync with the freshly-updated fork.
+        """
+        logger.info("Syncing fork with upstream...")
+        result = self.github_service.sync_fork_with_upstream()
+        if result.get("success"):
+            logger.info("Fork sync: %s", result["message"])
+        else:
+            logger.warning("Fork sync failed (non-fatal): %s", result.get("error"))
+
+        result = self.github_service.cleanup_merged_branches()
+        if result.get("success"):
+            deleted = result.get("deleted", [])
+            if deleted:
+                logger.info("Deleted merged branches: %s", ", ".join(deleted))
+        else:
+            logger.warning("Branch cleanup failed (non-fatal): %s", result.get("error"))
+
+        if "p-agent" in self._workspaces:
+            self._workspaces["p-agent"].pull_latest()
+
     def init_telegram(self):
         """Initialize Telegram service if a bot token is configured."""
         if not TELEGRAM_BOT_TOKEN:
@@ -285,6 +309,7 @@ def run_agent():
     agent.init_workspace()
     agent.init_agent_core()
     agent.init_telegram()
+    agent.sync_codebase()
 
     logger.info("Polling interval: %ss | Authorized senders: %s",
                 POLL_INTERVAL_SECONDS, AUTHORIZED_SENDERS or "ALL (not configured)")
