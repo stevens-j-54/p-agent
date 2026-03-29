@@ -98,6 +98,14 @@ def handle_create_repo(github, get_workspace, name: str, description: str = "", 
     return json.dumps(result)
 
 
+def handle_delete_repo(github, repo_name: str, confirm: bool = False) -> str:
+    logger.info("Deleting GitHub repo: %s (confirm=%s)", repo_name, confirm)
+    result = github.delete_repo(repo_name=repo_name, confirm=confirm)
+    if not result.get("success"):
+        logger.error("Tool error: %s", result.get('error'))
+    return json.dumps(result)
+
+
 def handle_create_issue(github, repo_name: str, title: str, body: str) -> str:
     logger.info("[%s] Creating issue: %s", repo_name, title)
     result = github.create_issue(repo_name=repo_name, title=title, body=body)
@@ -251,6 +259,11 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
                                   name=tool_input["name"],
                                   description=tool_input.get("description", ""),
                                   private=tool_input.get("private", True))
+
+    elif tool_name == "delete_repo":
+        return handle_delete_repo(github,
+                                  repo_name=tool_input["repo_name"],
+                                  confirm=tool_input.get("confirm", False))
 
     elif tool_name == "create_issue":
         return handle_create_issue(github,
