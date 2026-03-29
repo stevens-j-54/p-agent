@@ -34,6 +34,14 @@ logger = logging.getLogger(__name__)
 
 MAX_TELEGRAM_HISTORY = 20  # message turns to keep per chat session
 
+# Anthropic rate-limit + burst control.
+# Keep this in-process (per agent instance) to avoid immediate back-to-back
+# calls causing repeated 429 → sleep → success → 429 patterns during tool loops.
+ANTHROPIC_MIN_REQUEST_INTERVAL_SECONDS = 0.5
+ANTHROPIC_MAX_RETRIES = 10
+ANTHROPIC_BACKOFF_INITIAL_SECONDS = 1.0
+ANTHROPIC_BACKOFF_MAX_SECONDS = 60.0
+
 
 
 class EmailAgent:
@@ -45,6 +53,8 @@ class EmailAgent:
         self._telegram_sessions: dict[int, list] = {}
         self.agent_core = None
         self.github_service = None
+        self._anthropic_next_allowed_ts = 0.0
+        self._anthropic_last_call_ts = 0.0
 
     def get_workspace(self, repo_name: str = "workspace") -> Workspace:
         """Get (or lazily initialise) a workspace for the given repo name."""
@@ -75,9 +85,94 @@ class EmailAgent:
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
 
-        self.claude = anthropic.Anthropic(api_key=api_key, max_retries=10)
+        # Disable SDK-level retries so we can apply a shared, cross-call limiter.
+        self.claude = anthropic.Anthropic(api_key=api_key, max_retries=0)
         logger.info("Claude client initialised (model: %s)", CLAUDE_MODEL)
         return self
+
+    def _extract_retry_after_seconds(self, exc: Exception):
+        """
+        Best-effort extraction of retry delay from Anthropic/HTTPX exceptions.
+        Handles common shapes without depending on SDK internals.
+        """
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
+        status_code = getattr(response, "status_code", None)
+        if status_code != 429:
+            return None
+        headers = getattr(response, "headers", None) or {}
+
+        retry_after = headers.get("retry-after") or headers.get("Retry-After")
+        if retry_after is not None:
+            try:
+                return float(retry_after)
+            except Exception:
+                return None
+
+        # Some APIs return a unix timestamp reset. If present, convert to seconds.
+        reset = (
+            headers.get("x-ratelimit-reset")
+            or headers.get("X-RateLimit-Reset")
+            or headers.get("anthropic-ratelimit-reset")
+            or headers.get("Anthropic-RateLimit-Reset")
+        )
+        if reset is not None:
+            try:
+                reset_ts = float(reset)
+                now = time.time()
+                return max(0.0, reset_ts - now)
+            except Exception:
+                return None
+
+        return None
+
+    def _sleep_for_anthropic_throttle(self):
+        now = time.time()
+        # Burst control: ensure a minimum interval between calls.
+        since_last = now - self._anthropic_last_call_ts
+        if since_last < ANTHROPIC_MIN_REQUEST_INTERVAL_SECONDS:
+            time.sleep(ANTHROPIC_MIN_REQUEST_INTERVAL_SECONDS - since_last)
+            now = time.time()
+        # Shared cooldown: if we've been told to wait until a certain time, respect it.
+        if now < self._anthropic_next_allowed_ts:
+            time.sleep(self._anthropic_next_allowed_ts - now)
+
+    def _claude_messages_create(self, *, model: str, max_tokens: int, system: str, tools, messages):
+        """
+        Wrapper around Anthropic messages.create with shared throttling and retries.
+        This avoids immediate follow-on calls after a successful retry window reset.
+        """
+        attempt = 0
+        backoff = ANTHROPIC_BACKOFF_INITIAL_SECONDS
+        while True:
+            self._sleep_for_anthropic_throttle()
+            self._anthropic_last_call_ts = time.time()
+            try:
+                return self.claude.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    tools=tools,
+                    messages=messages
+                )
+            except Exception as e:
+                retry_after = self._extract_retry_after_seconds(e)
+                if retry_after is not None:
+                    # Add a small cushion to avoid cutting it too close.
+                    delay = max(0.0, retry_after) + 0.25
+                    self._anthropic_next_allowed_ts = max(self._anthropic_next_allowed_ts, time.time() + delay)
+                    logger.info("Anthropic 429 — retrying in %.3f seconds", delay)
+                else:
+                    # Unknown transient: exponential backoff.
+                    delay = min(backoff, ANTHROPIC_BACKOFF_MAX_SECONDS)
+                    self._anthropic_next_allowed_ts = max(self._anthropic_next_allowed_ts, time.time() + delay)
+                    logger.info("Anthropic request failed — retrying in %.3f seconds (%s)", delay, type(e).__name__)
+                    backoff = min(backoff * 2.0, ANTHROPIC_BACKOFF_MAX_SECONDS)
+
+                attempt += 1
+                if attempt > ANTHROPIC_MAX_RETRIES:
+                    raise
 
     def init_workspace(self):
         """Initialize the default workspace."""
@@ -161,12 +256,12 @@ class EmailAgent:
         """
         messages = list(messages)  # own the defensive copy; callers' lists are not mutated
         try:
-            response = self.claude.messages.create(
+            response = self._claude_messages_create(
                 model=CLAUDE_MODEL,
                 max_tokens=16384,
                 system=system_prompt,
                 tools=TOOLS,
-                messages=messages
+                messages=messages,
             )
 
             while response.stop_reason == "tool_use":
@@ -184,12 +279,12 @@ class EmailAgent:
 
                 messages.append({"role": "user", "content": tool_results})
 
-                response = self.claude.messages.create(
+                response = self._claude_messages_create(
                     model=CLAUDE_MODEL,
                     max_tokens=16384,
                     system=system_prompt,
                     tools=TOOLS,
-                    messages=messages
+                    messages=messages,
                 )
 
             text_blocks = [block.text for block in response.content if hasattr(block, 'text')]
