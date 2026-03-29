@@ -98,6 +98,14 @@ def handle_create_repo(github, get_workspace, name: str, description: str = "", 
     return json.dumps(result)
 
 
+def handle_delete_repo(github, repo_name: str, confirm: bool = False) -> str:
+    logger.info("Deleting GitHub repo: %s (confirm=%s)", repo_name, confirm)
+    result = github.delete_repo(repo_name=repo_name, confirm=confirm)
+    if not result.get("success"):
+        logger.error("Tool error: %s", result.get('error'))
+    return json.dumps(result)
+
+
 def handle_create_issue(github, repo_name: str, title: str, body: str) -> str:
     logger.info("[%s] Creating issue: %s", repo_name, title)
     result = github.create_issue(repo_name=repo_name, title=title, body=body)
@@ -208,40 +216,119 @@ def handle_update_agent_core(agent_core, file_path: str, content: str, commit_me
 # --- Router ---
 
 def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
-    """Route a tool call to its handler via dispatch table."""
-    gw = services.get("get_workspace")
-    gh = services.get("github")
-    ac = services.get("agent_core")
-    rn = tool_input.get("repo_name", "workspace")  # default repo for workspace tools
+    """Route a tool call to its handler."""
+    get_workspace = services.get("get_workspace")
+    github = services.get("github")
+    agent_core = services.get("agent_core")
 
-    dispatch = {
-        # Workspace
-        "save_document":    lambda: handle_save_document(gw, rn, tool_input["file_path"], tool_input["content"]),
-        "read_document":    lambda: handle_read_document(gw, rn, tool_input["file_path"]),
-        "delete_document":  lambda: handle_delete_document(gw, rn, tool_input["file_path"]),
-        "delete_folder":    lambda: handle_delete_folder(gw, rn, tool_input["folder_path"], tool_input.get("force", False)),
-        "rename_document":  lambda: handle_rename_document(gw, rn, tool_input["old_path"], tool_input["new_path"]),
-        "create_folder":    lambda: handle_create_folder(gw, rn, tool_input["folder_path"]),
-        "commit_and_push":  lambda: handle_commit_and_push(gw, rn, tool_input["commit_message"]),
-        "examine_workspace": lambda: handle_examine_workspace(gw, rn),
-        # GitHub
-        "list_repos":       lambda: handle_list_repos(gh),
-        "create_repo":      lambda: handle_create_repo(gh, gw, tool_input["name"], tool_input.get("description", ""), tool_input.get("private", True)),
-        "create_issue":     lambda: handle_create_issue(gh, tool_input["repo_name"], tool_input["title"], tool_input["body"]),
-        "create_branch":    lambda: handle_create_branch(gh, gw, tool_input["repo_name"], tool_input["branch_name"], tool_input.get("from_branch", "main")),
-        "merge_branch":     lambda: handle_merge_branch(gh, tool_input["repo_name"], tool_input["head_branch"], tool_input.get("base_branch", "main"), tool_input.get("commit_message", "")),
-        "create_pull_request": lambda: handle_create_pull_request(gh, tool_input["repo_name"], tool_input["title"], tool_input["body"], tool_input["head_branch"], tool_input.get("base_branch", "main")),
-        "check_ci_status":  lambda: handle_check_ci_status(gh, tool_input["repo_name"], tool_input["branch_name"]),
-        "open_upstream_pr": lambda: handle_open_upstream_pr(gh, tool_input["title"], tool_input["body"], tool_input["branch_name"], tool_input.get("base_branch", "main")),
-        # Agent-core
-        "list_agent_core":  lambda: handle_list_agent_core(ac),
-        "read_agent_core":  lambda: handle_read_agent_core(ac, tool_input["file_path"]),
-        "create_agent_core": lambda: handle_create_agent_core(ac, tool_input["file_path"], tool_input["content"], tool_input["commit_message"]),
-        "update_memory":    lambda: handle_update_memory(ac, tool_input["content"], tool_input["commit_message"]),
-        "update_agent_core": lambda: handle_update_agent_core(ac, tool_input["file_path"], tool_input["content"], tool_input["commit_message"]),
-    }
+    # Default repo_name for workspace tools
+    repo_name = tool_input.get("repo_name", "workspace")
 
-    handler = dispatch.get(tool_name)
-    if handler is None:
+    if tool_name == "save_document":
+        return handle_save_document(get_workspace, repo_name,
+                                    file_path=tool_input["file_path"],
+                                    content=tool_input["content"])
+
+    elif tool_name == "read_document":
+        return handle_read_document(get_workspace, repo_name,
+                                    file_path=tool_input["file_path"])
+
+    elif tool_name == "delete_document":
+        return handle_delete_document(get_workspace, repo_name,
+                                      file_path=tool_input["file_path"])
+
+    elif tool_name == "delete_folder":
+        return handle_delete_folder(get_workspace, repo_name,
+                                    folder_path=tool_input["folder_path"],
+                                    force=tool_input.get("force", False))
+
+    elif tool_name == "rename_document":
+        return handle_rename_document(get_workspace, repo_name,
+                                      old_path=tool_input["old_path"],
+                                      new_path=tool_input["new_path"])
+
+    elif tool_name == "create_folder":
+        return handle_create_folder(get_workspace, repo_name,
+                                    folder_path=tool_input["folder_path"])
+
+    elif tool_name == "commit_and_push":
+        return handle_commit_and_push(get_workspace, repo_name,
+                                      commit_message=tool_input["commit_message"])
+
+    elif tool_name == "examine_workspace":
+        return handle_examine_workspace(get_workspace, repo_name)
+
+    elif tool_name == "list_repos":
+        return handle_list_repos(github)
+
+    elif tool_name == "create_repo":
+        return handle_create_repo(github, get_workspace,
+                                  name=tool_input["name"],
+                                  description=tool_input.get("description", ""),
+                                  private=tool_input.get("private", True))
+
+    elif tool_name == "delete_repo":
+        return handle_delete_repo(github,
+                                  repo_name=tool_input["repo_name"],
+                                  confirm=tool_input.get("confirm", False))
+
+    elif tool_name == "create_issue":
+        return handle_create_issue(github,
+                                   repo_name=tool_input["repo_name"],
+                                   title=tool_input["title"],
+                                   body=tool_input["body"])
+
+    elif tool_name == "create_branch":
+        return handle_create_branch(github,
+                                    repo_name=tool_input["repo_name"],
+                                    branch_name=tool_input["branch_name"],
+                                    from_branch=tool_input.get("from_branch", "main"))
+
+    elif tool_name == "merge_branch":
+        return handle_merge_branch(github,
+                                   repo_name=tool_input["repo_name"],
+                                   head_branch=tool_input["head_branch"],
+                                   base_branch=tool_input.get("base_branch", "main"),
+                                   commit_message=tool_input.get("commit_message", ""))
+
+    elif tool_name == "create_pull_request":
+        return handle_create_pull_request(github,
+                                          repo_name=tool_input["repo_name"],
+                                          title=tool_input["title"],
+                                          body=tool_input["body"],
+                                          head_branch=tool_input["head_branch"],
+                                          base_branch=tool_input.get("base_branch", "main"))
+
+    elif tool_name == "open_upstream_pr":
+        return handle_open_upstream_pr(github,
+                                       title=tool_input["title"],
+                                       body=tool_input["body"],
+                                       branch_name=tool_input["branch_name"],
+                                       base_branch=tool_input.get("base_branch", "main"))
+
+    elif tool_name == "list_agent_core":
+        return handle_list_agent_core(agent_core)
+
+    elif tool_name == "read_agent_core":
+        return handle_read_agent_core(agent_core, file_path=tool_input["file_path"])
+
+    elif tool_name == "create_agent_core":
+        return handle_create_agent_core(agent_core,
+                                        file_path=tool_input["file_path"],
+                                        content=tool_input["content"],
+                                        commit_message=tool_input["commit_message"])
+
+    elif tool_name == "update_memory":
+        return handle_update_memory(agent_core,
+                                    content=tool_input["content"],
+                                    commit_message=tool_input["commit_message"])
+
+    elif tool_name == "update_agent_core":
+        return handle_update_agent_core(agent_core,
+                                        file_path=tool_input["file_path"],
+                                        content=tool_input["content"],
+                                        commit_message=tool_input["commit_message"])
+
+    else:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
     return handler()
