@@ -1,7 +1,7 @@
 """
 Autonomous Email Agent
 ==========================================
-A simple agent that polls its Gmail inbox and replies to emails.
+A simple agent that polls its Gmail inbox and Telegram for messages and replies.
 """
 
 import os
@@ -15,10 +15,12 @@ from config import (
     POLL_INTERVAL_SECONDS,
     AUTHORIZED_SENDERS,
     CLAUDE_MODEL,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_AUTHORIZED_IDS,
 )
-from prompts import load_system_prompt, EMAIL_RECEIVED_TEMPLATE
+from prompts import load_system_prompt, EMAIL_RECEIVED_TEMPLATE, TELEGRAM_MESSAGE_TEMPLATE
 from tools import TOOLS, handle_tool_call
-from services import Workspace, EmailService, AgentCore, GitHubService
+from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +29,8 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_TELEGRAM_HISTORY = 20  # message turns to keep per chat session
 
 
 def _build_messages(thread_history, current_message):
@@ -54,8 +58,10 @@ def _build_messages(thread_history, current_message):
 class EmailAgent:
     def __init__(self):
         self.email_service = None
+        self.telegram_service = None
         self.claude = None
         self._workspaces: dict[str, Workspace] = {}
+        self._telegram_sessions: dict[int, list] = {}
         self.agent_core = None
         self.github_service = None
 
@@ -109,8 +115,18 @@ class EmailAgent:
         self.agent_core.init()
         return self
 
+    def init_telegram(self):
+        """Initialize Telegram service if a bot token is configured."""
+        if not TELEGRAM_BOT_TOKEN:
+            logger.info("No TELEGRAM_BOT_TOKEN configured — Telegram disabled")
+            return self
+        self.telegram_service = TelegramService(TELEGRAM_BOT_TOKEN)
+        self.telegram_service.skip_pending()
+        logger.info("Telegram service initialised")
+        return self
+
     def is_authorized_sender(self, sender):
-        """Check if sender is in authorized list."""
+        """Check if an email sender is in the authorized list."""
         if not AUTHORIZED_SENDERS:
             logger.error("No authorized senders configured — rejecting all emails")
             return False
@@ -121,22 +137,18 @@ class EmailAgent:
 
         return email.lower() in [s.lower() for s in AUTHORIZED_SENDERS]
 
-    def process_email(self, email):
-        """Process an email using Claude with tool support."""
-        self.agent_core.pull_latest()
-        system_prompt = load_system_prompt()
+    def is_authorized_telegram_user(self, user_id: int) -> bool:
+        """Check if a Telegram user ID is in the authorized list."""
+        if not TELEGRAM_AUTHORIZED_IDS:
+            logger.error("No authorized Telegram users configured — rejecting all messages")
+            return False
+        return user_id in TELEGRAM_AUTHORIZED_IDS
 
-        user_message = EMAIL_RECEIVED_TEMPLATE.format(
-            sender=email['sender'],
-            subject=email['subject'],
-            body=email['body']
-        )
-
-        thread_history = self.email_service.get_thread_context(
-            email['thread_id'], email['id']
-        )
-        messages = _build_messages(thread_history, user_message)
-
+    def _run_claude(self, messages: list, system_prompt: str) -> str:
+        """
+        Core Claude tool-use loop shared by all channels.
+        Runs until Claude stops requesting tools, then returns the final text response.
+        """
         try:
             response = self.claude.messages.create(
                 model=CLAUDE_MODEL,
@@ -176,6 +188,62 @@ class EmailAgent:
             logger.error("Claude API error: %s", e)
             return f"Something went wrong on my end. Please try again.\n\n(Error: {str(e)[:100]})"
 
+    def process_email(self, email):
+        """Process an email using Claude with tool support."""
+        self.agent_core.pull_latest()
+        system_prompt = load_system_prompt()
+
+        user_message = EMAIL_RECEIVED_TEMPLATE.format(
+            sender=email['sender'],
+            subject=email['subject'],
+            body=email['body']
+        )
+
+        thread_history = self.email_service.get_thread_context(
+            email['thread_id'], email['id']
+        )
+        messages = _build_messages(thread_history, user_message)
+        return self._run_claude(messages, system_prompt)
+
+    def process_telegram_update(self, update: dict) -> str:
+        """
+        Process a Telegram message using Claude with tool support.
+
+        Maintains an in-memory conversation history per chat ID so the agent
+        has multi-turn context within a session. History resets on restart.
+        """
+        message = update['message']
+        chat_id = message['chat']['id']
+        text = message.get('text', '')
+
+        user = message.get('from', {})
+        sender_name = user.get('first_name', 'User')
+        if user.get('last_name'):
+            sender_name += f" {user['last_name']}"
+
+        self.agent_core.pull_latest()
+        system_prompt = load_system_prompt()
+
+        # Get or create session history for this chat
+        history = self._telegram_sessions.setdefault(chat_id, [])
+
+        user_content = TELEGRAM_MESSAGE_TEMPLATE.format(
+            sender_name=sender_name,
+            text=text,
+        )
+        history.append({"role": "user", "content": user_content})
+
+        # Pass a copy so intermediate tool-call messages don't pollute session history
+        response = self._run_claude(list(history), system_prompt)
+
+        history.append({"role": "assistant", "content": response})
+
+        # Trim session to keep the context window manageable
+        if len(history) > MAX_TELEGRAM_HISTORY:
+            self._telegram_sessions[chat_id] = history[-MAX_TELEGRAM_HISTORY:]
+
+        return response
+
 
 def run_agent():
     """Main agent loop."""
@@ -189,6 +257,7 @@ def run_agent():
     agent.init_github()
     agent.init_workspace()
     agent.init_agent_core()
+    agent.init_telegram()
 
     logger.info("Polling interval: %ss | Authorized senders: %s",
                 POLL_INTERVAL_SECONDS, AUTHORIZED_SENDERS or "ALL (not configured)")
@@ -196,6 +265,7 @@ def run_agent():
 
     while True:
         try:
+            # --- Email ---
             logger.debug("Checking for new emails...")
             emails = agent.email_service.get_unread_emails()
 
@@ -215,17 +285,46 @@ def run_agent():
                         agent.email_service.mark_as_read(email['id'])
                         continue
 
-                    logger.info("Processing with Claude...")
+                    logger.info("Processing email with Claude...")
                     response = agent.process_email(email)
 
-                    logger.info("Sending reply...")
+                    logger.info("Sending email reply...")
                     sent = agent.email_service.send_reply(email, response)
 
                     if sent:
                         agent.email_service.mark_as_read(email['id'])
-                        logger.info("Done")
+                        logger.info("Email done")
                     else:
-                        logger.error("Reply failed — email left unread for retry")
+                        logger.error("Email reply failed — left unread for retry")
+
+            # --- Telegram ---
+            if agent.telegram_service:
+                logger.debug("Checking for Telegram messages...")
+                updates = agent.telegram_service.get_updates()
+
+                if updates:
+                    logger.info("Found %d Telegram update(s)", len(updates))
+
+                for update in updates:
+                    if 'message' not in update:
+                        continue
+
+                    message = update['message']
+                    if 'text' not in message:
+                        continue
+
+                    user_id = message.get('from', {}).get('id')
+                    chat_id = message['chat']['id']
+
+                    if not agent.is_authorized_telegram_user(user_id):
+                        logger.warning("Skipping unauthorized Telegram user: %s", user_id)
+                        continue
+
+                    logger.info("Processing Telegram message from user %s...", user_id)
+                    response = agent.process_telegram_update(update)
+
+                    agent.telegram_service.send_message(chat_id, response)
+                    logger.info("Telegram reply sent")
 
             time.sleep(POLL_INTERVAL_SECONDS)
 

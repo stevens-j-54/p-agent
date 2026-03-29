@@ -29,3 +29,7 @@ UPSTREAM_CODEBASE_REPO = os.getenv("UPSTREAM_CODEBASE_REPO", "quaneh2/p-agent")
 
 # Gmail API scopes
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+
+# Telegram
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_AUTHORIZED_IDS = json.loads(os.getenv("TELEGRAM_AUTHORIZED_IDS", "[]"))
