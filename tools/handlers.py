@@ -106,11 +106,23 @@ def handle_create_issue(github, repo_name: str, title: str, body: str) -> str:
     return json.dumps(result)
 
 
-def handle_create_branch(github, get_workspace, repo_name: str, branch_name: str, from_branch: str = "main") -> str:
+def handle_create_branch(
+    github,
+    repo_name: str,
+    branch_name: str,
+    from_branch: str = "main",
+    *,
+    get_workspace=None,
+) -> str:
+    """Create branch on GitHub, then check out locally when get_workspace is provided."""
     logger.info("[%s] Creating branch: %s from %s", repo_name, branch_name, from_branch)
     result = github.create_branch(repo_name=repo_name, branch_name=branch_name, from_branch=from_branch)
     if not result.get("success"):
         logger.error("Tool error: %s", result.get('error'))
+        return json.dumps(result)
+    if get_workspace is None:
+        logger.warning("[%s] No get_workspace; skipping local checkout for %s", repo_name, branch_name)
+        result["checkout_warning"] = "Local workspace unavailable; branch exists on GitHub only."
         return json.dumps(result)
     # Check out the new branch locally so subsequent commits go to the right place
     logger.info("[%s] Checking out branch locally: %s", repo_name, branch_name)
@@ -228,7 +240,13 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
         "list_repos":       lambda: handle_list_repos(gh),
         "create_repo":      lambda: handle_create_repo(gh, gw, tool_input["name"], tool_input.get("description", ""), tool_input.get("private", True)),
         "create_issue":     lambda: handle_create_issue(gh, tool_input["repo_name"], tool_input["title"], tool_input["body"]),
-        "create_branch":    lambda: handle_create_branch(gh, gw, tool_input["repo_name"], tool_input["branch_name"], tool_input.get("from_branch", "main")),
+        "create_branch":    lambda: handle_create_branch(
+            gh,
+            tool_input["repo_name"],
+            tool_input["branch_name"],
+            tool_input.get("from_branch", "main"),
+            get_workspace=gw,
+        ),
         "merge_branch":     lambda: handle_merge_branch(gh, tool_input["repo_name"], tool_input["head_branch"], tool_input.get("base_branch", "main"), tool_input.get("commit_message", "")),
         "create_pull_request": lambda: handle_create_pull_request(gh, tool_input["repo_name"], tool_input["title"], tool_input["body"], tool_input["head_branch"], tool_input.get("base_branch", "main")),
         "check_ci_status":  lambda: handle_check_ci_status(gh, tool_input["repo_name"], tool_input["branch_name"]),
