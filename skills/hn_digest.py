@@ -1,21 +1,27 @@
 """
 HN Digest Skill
 
-Fetches the Hacker News front page, filters stories for relevance to Hugh's
-work (AI, agents, software engineering, startups, developer tooling), fetches
-the full content of the most relevant ones, summarises each, and saves the
-results to the workspace under research/hn-YYYY-MM-DD/.
+Fetches the Hacker News front page via the official HN Firebase API, filters
+stories for relevance to Hugh's work (AI, agents, software engineering,
+startups, developer tooling), fetches the full content of the most relevant
+ones, summarises each, and saves the results to the workspace under
+research/hn-YYYY-MM-DD/.
 
 Returns a markdown index string suitable for sending directly to the user.
+
+HN API:
+  Top story IDs:  https://hacker-news.firebaseio.com/v0/topstories.json
+  Story detail:   https://hacker-news.firebaseio.com/v0/item/{id}.json
 """
 
+import json
 import logging
-import re
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-HN_FRONT_PAGE = "https://news.ycombinator.com"
+HN_TOP_STORIES_URL = "https://hacker-news.firebaseio.com/v0/topstories.json"
+HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
 
 # Topics relevant to Hugh's work — used as a rubric for scoring stories.
 RELEVANCE_TOPICS = [
@@ -45,7 +51,10 @@ RELEVANCE_TOPICS = [
     "agent",
 ]
 
-# Number of top stories to fetch and summarise.
+# How many top story IDs to consider from HN (the API returns ~500).
+CANDIDATE_POOL = 30
+
+# Number of stories to fetch and summarise after filtering.
 TOP_N = 6
 
 
@@ -80,20 +89,24 @@ class HNDigestSkill:
             date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             output_folder = f"research/hn-{date_str}"
 
-            # Step 1: Fetch HN front page
-            logger.info("HN Digest: fetching front page")
-            hn_result = self.fetch.fetch_url(url=HN_FRONT_PAGE)
-            if not hn_result.get("success"):
-                return {"success": False, "error": f"Could not fetch HN: {hn_result.get('error')}"}
+            # Step 1: Fetch top story IDs from HN API
+            logger.info("HN Digest: fetching top story IDs")
+            ids = self._fetch_top_story_ids()
+            if not ids:
+                return {"success": False, "error": "Could not fetch HN top story IDs"}
 
-            raw_text = hn_result.get("content", "")
+            # Step 2: Fetch story metadata for the candidate pool
+            logger.info("HN Digest: fetching metadata for %d candidates", CANDIDATE_POOL)
+            stories = []
+            for story_id in ids[:CANDIDATE_POOL]:
+                story = self._fetch_story_metadata(story_id)
+                if story:
+                    stories.append(story)
 
-            # Step 2: Parse stories
-            stories = self._parse_stories(raw_text)
             if not stories:
-                return {"success": False, "error": "No stories found on HN front page"}
+                return {"success": False, "error": "No story metadata retrieved from HN API"}
 
-            logger.info("HN Digest: found %d stories", len(stories))
+            logger.info("HN Digest: retrieved metadata for %d stories", len(stories))
 
             # Step 3: Score and shortlist
             shortlisted = self._shortlist(stories, TOP_N)
@@ -122,65 +135,46 @@ class HNDigestSkill:
             return {"success": False, "error": str(e)}
 
     # ------------------------------------------------------------------
-    # Parsing
+    # HN API fetching
     # ------------------------------------------------------------------
 
-    def _parse_stories(self, text: str) -> list[dict]:
-        """
-        Extract story titles, URLs, and scores from the cleaned HN page text.
+    def _fetch_top_story_ids(self) -> list[int]:
+        """Fetch the list of top story IDs from the HN Firebase API."""
+        result = self.fetch.fetch_url(url=HN_TOP_STORIES_URL)
+        if not result.get("success"):
+            logger.error("Failed to fetch HN top stories: %s", result.get("error"))
+            return []
+        try:
+            ids = json.loads(result["content"])
+            return ids if isinstance(ids, list) else []
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error("Failed to parse HN top story IDs: %s", e)
+            return []
 
-        FetchService returns the HN front page as a single continuous string.
-        The structure is a numbered list:
-          "1. Story Title ( domain.com ) NNN points by user X hours ago | ..."
-          "2. Next Story ..."
-
-        We split on the numbered story markers and extract title + score from
-        each segment.
-        """
-        stories = []
-
-        # Split on numbered story entries: "1. ", "2. ", etc.
-        # We look for a digit sequence followed by ". " at a word boundary.
-        segments = re.split(r'(?<!\d)(\d{1,2})\.\s+', text)
-
-        # re.split with a capturing group gives us: [pre, num, content, num, content, ...]
-        # Walk in pairs: (number, content)
-        i = 1
-        while i + 1 < len(segments):
-            _num = segments[i]
-            content = segments[i + 1]
-            i += 2
-
-            # Extract title — everything up to the first " (" domain marker or
-            # up to "NNN points", whichever comes first.
-            title_match = re.match(r'^(.+?)(?:\s*\([^)]*\))?\s+(\d+)\s+points?', content)
-            if not title_match:
-                # Try without domain — just title then points
-                title_match = re.match(r'^(.+?)\s+(\d+)\s+points?', content)
-            if not title_match:
-                continue
-
-            title = title_match.group(1).strip()
-            score = int(title_match.group(2))
-
-            # Skip obvious non-stories (too short, navigation text)
-            if len(title) < 8:
-                continue
-            if re.match(r'^(hide|past|comments?|flag|from|by|submit|login|more)', title, re.I):
-                continue
-
-            # Extract domain hint from parentheses e.g. "( github.com )"
-            domain_match = re.search(r'\(\s*([\w.-]+\.\w+)\s*\)', content[:200])
-            domain = domain_match.group(1) if domain_match else None
-
-            stories.append({
-                "title": title,
-                "url": f"https://{domain}" if domain else HN_FRONT_PAGE,
-                "domain": domain,
-                "score": score,
-            })
-
-        return stories
+    def _fetch_story_metadata(self, story_id: int) -> dict | None:
+        """Fetch metadata for a single HN story by ID."""
+        url = HN_ITEM_URL.format(id=story_id)
+        result = self.fetch.fetch_url(url=url)
+        if not result.get("success"):
+            return None
+        try:
+            item = json.loads(result["content"])
+            # Skip non-story types (jobs, polls, comments) and deleted items
+            if item.get("type") != "story" or item.get("deleted") or item.get("dead"):
+                return None
+            # Skip Ask HN / Show HN with no external URL — still include them
+            # but mark them so we don't attempt to fetch the content later.
+            return {
+                "id": item.get("id"),
+                "title": item.get("title", ""),
+                "url": item.get("url"),  # None for Ask HN etc.
+                "score": item.get("score", 0),
+                "by": item.get("by", ""),
+                "hn_url": f"https://news.ycombinator.com/item?id={item.get('id')}",
+            }
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning("Failed to parse story %s: %s", story_id, e)
+            return None
 
     # ------------------------------------------------------------------
     # Scoring / shortlisting
@@ -209,21 +203,21 @@ class HNDigestSkill:
 
     def _fetch_and_summarise(self, story: dict) -> dict:
         """Fetch a story URL and produce a tight summary."""
-        url = story["url"]
         title = story["title"]
         score = story["score"]
-        domain = story.get("domain")
+        url = story.get("url")
+        hn_url = story["hn_url"]
 
         logger.info("HN Digest: fetching '%s'", title)
 
-        # Don't try to fetch bare HN or domainless stories
-        if not domain or url == HN_FRONT_PAGE or "news.ycombinator.com" in url:
+        # Ask HN, Show HN, or other stories without an external URL
+        if not url:
             return {
                 "title": title,
-                "url": url,
+                "url": hn_url,
                 "score": score,
-                "summary": "No external URL available — see HN for discussion.",
-                "fetch_failed": True,
+                "summary": "No external URL — discussion is on HN itself.",
+                "fetch_failed": False,
             }
 
         result = self.fetch.fetch_url(url=url)
@@ -231,36 +225,35 @@ class HNDigestSkill:
             return {
                 "title": title,
                 "url": url,
+                "hn_url": hn_url,
                 "score": score,
                 "summary": f"Could not fetch article ({result.get('error', 'unknown error')}).",
                 "fetch_failed": True,
             }
 
         content = result.get("content", "")
-        summary = self._summarise(content, title)
+        summary = self._summarise(content)
 
         return {
             "title": title,
             "url": url,
+            "hn_url": hn_url,
             "score": score,
             "summary": summary,
             "fetch_failed": False,
         }
 
-    def _summarise(self, content: str, title: str) -> str:
+    def _summarise(self, content: str) -> str:
         """
         Produce a tight summary from article content.
 
         Takes the first meaningful paragraphs up to ~1500 chars.
         """
-        # Strip very short lines (navigation, headers, etc.)
         lines = [l.strip() for l in content.splitlines() if len(l.strip()) > 60]
         body = " ".join(lines)
 
-        # Take first 1500 characters of meaningful content
         excerpt = body[:1500].strip()
         if len(body) > 1500:
-            # Cut at last sentence boundary
             last_period = excerpt.rfind(". ")
             if last_period > 500:
                 excerpt = excerpt[: last_period + 1]
@@ -280,6 +273,8 @@ class HNDigestSkill:
         for d in digests:
             sources_lines.append(f"## {d['title']}")
             sources_lines.append(f"- **URL**: {d['url']}")
+            if d.get("hn_url"):
+                sources_lines.append(f"- **HN discussion**: {d['hn_url']}")
             sources_lines.append(f"- **Score**: {d['score']} points")
             sources_lines.append(f"- **Fetch failed**: {d.get('fetch_failed', False)}")
             sources_lines.append("")
@@ -294,6 +289,8 @@ class HNDigestSkill:
         for d in digests:
             notes_lines.append(f"## {d['title']}")
             notes_lines.append(f"**URL**: {d['url']}  ")
+            if d.get("hn_url"):
+                notes_lines.append(f"**HN**: {d['hn_url']}  ")
             notes_lines.append(f"**Score**: {d['score']} points\n")
             notes_lines.append(d["summary"])
             notes_lines.append("\n---\n")
@@ -314,7 +311,6 @@ class HNDigestSkill:
             fetch_note = " *(fetch failed)*" if d.get("fetch_failed") else ""
             lines.append(f"**{i}. {d['title']}**{fetch_note}")
             lines.append(f"↑ {d['score']} pts · {d['url']}")
-            # One-sentence teaser from the summary
             summary = d["summary"]
             first_sentence = summary.split(". ")[0]
             if len(first_sentence) > 20:
