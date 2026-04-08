@@ -46,6 +46,10 @@ class FetchService:
             content_type = response.headers.get("content-type", "")
             if "text/html" in content_type or "text/plain" in content_type:
                 raw = response.text
+                cleaned = self._clean_html(raw)
+            elif "application/json" in content_type:
+                # JSON doesn't need HTML cleaning — return as-is
+                cleaned = response.text
             else:
                 # For non-text content types, return a helpful message rather than binary noise
                 return {
@@ -54,8 +58,8 @@ class FetchService:
                     "error": f"Unsupported content type: {content_type}. Only HTML and plain text are supported."
                 }
 
-            cleaned = self._clean_html(raw)
             truncated = len(cleaned) > max_length
+
             if truncated:
                 cleaned = cleaned[:max_length]
 

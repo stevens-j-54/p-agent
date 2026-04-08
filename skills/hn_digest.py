@@ -9,13 +9,19 @@ results to the workspace under research/hn-YYYY-MM-DD/.
 Returns a markdown index string suitable for sending directly to the user.
 """
 
+import json
 import logging
-import re
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
 HN_FRONT_PAGE = "https://news.ycombinator.com"
+HN_API_TOP = "https://hacker-news.firebaseio.com/v0/topstories.json"
+HN_API_ITEM = "https://hacker-news.firebaseio.com/v0/item/{}.json"
+
+# How many top story IDs to fetch from the API before shortlisting
+HN_FETCH_LIMIT = 30
 
 # Topics relevant to Hugh's work — used as a rubric for scoring stories.
 RELEVANCE_TOPICS = [
@@ -80,16 +86,8 @@ class HNDigestSkill:
             date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             output_folder = f"research/hn-{date_str}"
 
-            # Step 1: Fetch HN front page
-            logger.info("HN Digest: fetching front page")
-            hn_result = self.fetch.fetch_url(url=HN_FRONT_PAGE)
-            if not hn_result.get("success"):
-                return {"success": False, "error": f"Could not fetch HN: {hn_result.get('error')}"}
-
-            raw_text = hn_result.get("content", "")
-
-            # Step 2: Parse stories
-            stories = self._parse_stories(raw_text)
+            # Step 1 & 2: Fetch stories with real URLs from the HN API
+            stories = self._fetch_stories()
             if not stories:
                 return {"success": False, "error": "No stories found on HN front page"}
 
@@ -122,65 +120,75 @@ class HNDigestSkill:
             return {"success": False, "error": str(e)}
 
     # ------------------------------------------------------------------
-    # Parsing
+    # Story fetching via HN Firebase API
     # ------------------------------------------------------------------
 
-    def _parse_stories(self, text: str) -> list[dict]:
+    def _fetch_stories(self) -> list[dict]:
         """
-        Extract story titles, URLs, and scores from the cleaned HN page text.
+        Fetch the top HN stories with their real article URLs via the Firebase API.
 
-        FetchService returns the HN front page as a single continuous string.
-        The structure is a numbered list:
-          "1. Story Title ( domain.com ) NNN points by user X hours ago | ..."
-          "2. Next Story ..."
+        Uses:
+          GET https://hacker-news.firebaseio.com/v0/topstories.json
+            → [id, id, ...]
+          GET https://hacker-news.firebaseio.com/v0/item/{id}.json
+            → {"id": …, "title": …, "url": …, "score": …, "type": …}
 
-        We split on the numbered story markers and extract title + score from
-        each segment.
+        The old approach of scraping the front page only recovered the domain
+        (e.g. "github.com") from parenthetical text, then constructed a bare
+        homepage URL like "https://github.com" — discarding the actual article
+        path entirely.
         """
+        logger.info("HN Digest: fetching top story IDs from API")
+        ids_result = self.fetch.fetch_url(url=HN_API_TOP)
+        if not ids_result.get("success"):
+            logger.error("HN API top stories fetch failed: %s", ids_result.get("error"))
+            return []
+
+        try:
+            story_ids = json.loads(ids_result["content"])[:HN_FETCH_LIMIT]
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.error("HN API: could not parse story IDs: %s", exc)
+            return []
+
         stories = []
-
-        # Split on numbered story entries: "1. ", "2. ", etc.
-        # We look for a digit sequence followed by ". " at a word boundary.
-        segments = re.split(r'(?<!\d)(\d{1,2})\.\s+', text)
-
-        # re.split with a capturing group gives us: [pre, num, content, num, content, ...]
-        # Walk in pairs: (number, content)
-        i = 1
-        while i + 1 < len(segments):
-            _num = segments[i]
-            content = segments[i + 1]
-            i += 2
-
-            # Extract title — everything up to the first " (" domain marker or
-            # up to "NNN points", whichever comes first.
-            title_match = re.match(r'^(.+?)(?:\s*\([^)]*\))?\s+(\d+)\s+points?', content)
-            if not title_match:
-                # Try without domain — just title then points
-                title_match = re.match(r'^(.+?)\s+(\d+)\s+points?', content)
-            if not title_match:
+        for story_id in story_ids:
+            item_url = HN_API_ITEM.format(story_id)
+            item_result = self.fetch.fetch_url(url=item_url)
+            if not item_result.get("success"):
                 continue
 
-            title = title_match.group(1).strip()
-            score = int(title_match.group(2))
-
-            # Skip obvious non-stories (too short, navigation text)
-            if len(title) < 8:
-                continue
-            if re.match(r'^(hide|past|comments?|flag|from|by|submit|login|more)', title, re.I):
+            try:
+                item = json.loads(item_result["content"])
+            except json.JSONDecodeError:
                 continue
 
-            # Extract domain hint from parentheses e.g. "( github.com )"
-            domain_match = re.search(r'\(\s*([\w.-]+\.\w+)\s*\)', content[:200])
-            domain = domain_match.group(1) if domain_match else None
+            if item.get("type") != "story":
+                continue
+
+            title = item.get("title", "").strip()
+            if not title:
+                continue
+
+            # External stories have a "url" field; Ask/Show HN posts do not.
+            article_url = item.get("url") or f"{HN_FRONT_PAGE}/item?id={story_id}"
+            score = item.get("score", 0)
+            domain = self._extract_domain(article_url)
 
             stories.append({
                 "title": title,
-                "url": f"https://{domain}" if domain else HN_FRONT_PAGE,
+                "url": article_url,
                 "domain": domain,
                 "score": score,
             })
 
         return stories
+
+    def _extract_domain(self, url: str) -> str | None:
+        """Return the netloc of a URL, or None if unparseable."""
+        try:
+            return urlparse(url).netloc or None
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     # Scoring / shortlisting
