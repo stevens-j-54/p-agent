@@ -193,6 +193,16 @@ def handle_open_upstream_pr(github, title: str, body: str,
     return json.dumps(result)
 
 
+# --- Fetch handler ---
+
+def handle_fetch_url(fetch, url: str) -> str:
+    logger.info("Fetching URL: %s", url)
+    result = fetch.fetch_url(url=url)
+    if not result.get("success"):
+        logger.error("Fetch error: %s", result.get('error'))
+    return json.dumps(result)
+
+
 # --- Agent-core handlers ---
 
 def handle_list_agent_core(agent_core) -> str:
@@ -232,6 +242,7 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
     gw = services.get("get_workspace")
     gh = services.get("github")
     ac = services.get("agent_core")
+    ft = services.get("fetch")
     rn = tool_input.get("repo_name", "workspace")  # default repo for workspace tools
 
     dispatch = {
@@ -260,6 +271,8 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
         "create_pull_request": lambda: handle_create_pull_request(gh, tool_input["repo_name"], tool_input["title"], tool_input["body"], tool_input["head_branch"], tool_input.get("base_branch", "main")),
         "check_ci_status":  lambda: handle_check_ci_status(gh, tool_input["repo_name"], tool_input["branch_name"]),
         "open_upstream_pr": lambda: handle_open_upstream_pr(gh, tool_input["title"], tool_input["body"], tool_input["branch_name"], tool_input.get("base_branch", "main")),
+        # Fetch
+        "fetch_url":        lambda: handle_fetch_url(ft, tool_input["url"]),
         # Agent-core
         "list_agent_core":  lambda: handle_list_agent_core(ac),
         "read_agent_core":  lambda: handle_read_agent_core(ac, tool_input["file_path"]),

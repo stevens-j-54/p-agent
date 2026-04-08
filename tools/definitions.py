@@ -339,6 +339,26 @@ TOOLS = [
             "required": ["title", "body", "branch_name"]
         }
     },
+    # --- Fetch tool ---
+    {
+        "name": "fetch_url",
+        "description": (
+            "Fetch the content of a URL and return it as clean plain text. "
+            "Use this to read web pages, news articles, documentation, or any public URL. "
+            "HTML tags and boilerplate are stripped; the result is readable prose. "
+            "Content is capped at 50,000 characters to protect context window size."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to fetch, e.g. 'https://news.ycombinator.com'"
+                }
+            },
+            "required": ["url"]
+        }
+    },
     # --- Agent-core tools ---
     {
         "name": "list_agent_core",

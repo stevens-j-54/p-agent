@@ -22,6 +22,7 @@ from config import (
 from prompts import load_system_prompt, EMAIL_RECEIVED_TEMPLATE, TELEGRAM_MESSAGE_TEMPLATE
 from tools import TOOLS, handle_tool_call
 from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService
+from services.fetch_service import FetchService
 from utils import build_messages, is_authorized_email_sender, is_authorized_telegram_user
 
 logging.basicConfig(
@@ -53,6 +54,7 @@ class EmailAgent:
         self._telegram_sessions: dict[int, list] = {}
         self.agent_core = None
         self.github_service = None
+        self.fetch_service = FetchService()
         self._anthropic_next_allowed_ts = 0.0
         self._anthropic_last_call_ts = 0.0
 
@@ -71,6 +73,7 @@ class EmailAgent:
             "get_workspace": self.get_workspace,
             "github": self.github_service,
             "agent_core": self.agent_core,
+            "fetch": self.fetch_service,
         }
 
     def init_email(self):
