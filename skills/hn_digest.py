@@ -9,7 +9,6 @@ results to the workspace under research/hn-YYYY-MM-DD/.
 Returns a markdown index string suitable for sending directly to the user.
 """
 
-import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -39,6 +38,11 @@ RELEVANCE_TOPICS = [
     "web development",
     "security",
     "productivity",
+    "claude",
+    "anthropic",
+    "openai",
+    "gpt",
+    "agent",
 ]
 
 # Number of top stories to fetch and summarise.
@@ -82,10 +86,10 @@ class HNDigestSkill:
             if not hn_result.get("success"):
                 return {"success": False, "error": f"Could not fetch HN: {hn_result.get('error')}"}
 
-            raw_html = hn_result.get("content", "")
+            raw_text = hn_result.get("content", "")
 
             # Step 2: Parse stories
-            stories = self._parse_stories(raw_html)
+            stories = self._parse_stories(raw_text)
             if not stories:
                 return {"success": False, "error": "No stories found on HN front page"}
 
@@ -125,87 +129,58 @@ class HNDigestSkill:
         """
         Extract story titles, URLs, and scores from the cleaned HN page text.
 
-        The FetchService strips HTML, so we work with the plain-text output
-        which preserves the story titles and point counts in a predictable order.
-        We use the HN comment/item URL as a fallback when the story URL is
-        an internal HN link.
+        FetchService returns the HN front page as a single continuous string.
+        The structure is a numbered list:
+          "1. Story Title ( domain.com ) NNN points by user X hours ago | ..."
+          "2. Next Story ..."
+
+        We split on the numbered story markers and extract title + score from
+        each segment.
         """
         stories = []
 
-        # Match lines that look like story titles followed by metadata.
-        # HN's cleaned text has patterns like:
-        #   "Story Title (domain.com)"  or just  "Story Title"
-        # followed later by "NNN points"
-        #
-        # We use a simple approach: find all hrefs from the raw text by
-        # re-scanning for "item?id=" references and title-like lines.
-        # Since we only have cleaned text, we rely on structural patterns.
+        # Split on numbered story entries: "1. ", "2. ", etc.
+        # We look for a digit sequence followed by ". " at a word boundary.
+        segments = re.split(r'(?<!\d)(\d{1,2})\.\s+', text)
 
-        # Split into lines and look for title + score pairs
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        # re.split with a capturing group gives us: [pre, num, content, num, content, ...]
+        # Walk in pairs: (number, content)
+        i = 1
+        while i + 1 < len(segments):
+            _num = segments[i]
+            content = segments[i + 1]
+            i += 2
 
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-
-            # Score line pattern: starts with a number and contains "point"
-            score_match = re.match(r'^(\d+)\s+points?', line)
-            if score_match and i > 0:
-                score = int(score_match.group(1))
-                # The title is somewhere in the preceding few lines
-                # Walk backwards to find the most plausible title line
-                title = self._find_title_before(lines, i)
-                if title:
-                    # Try to find a URL nearby
-                    url = self._find_url_near(lines, i)
-                    stories.append({
-                        "title": title,
-                        "url": url or HN_FRONT_PAGE,
-                        "score": score,
-                    })
-            i += 1
-
-        # Deduplicate by title
-        seen = set()
-        deduped = []
-        for s in stories:
-            key = s["title"].lower()
-            if key not in seen:
-                seen.add(key)
-                deduped.append(s)
-
-        return deduped
-
-    def _find_title_before(self, lines: list[str], score_idx: int) -> str | None:
-        """Walk back from a score line to find the story title."""
-        # Look up to 5 lines back for something that looks like a title
-        for offset in range(1, 6):
-            idx = score_idx - offset
-            if idx < 0:
-                break
-            candidate = lines[idx]
-            # Skip metadata lines (usernames, vote counts, time references)
-            if re.match(r'^\d+\s+(points?|hours?|minutes?|days?)', candidate):
+            # Extract title — everything up to the first " (" domain marker or
+            # up to "NNN points", whichever comes first.
+            title_match = re.match(r'^(.+?)(?:\s*\([^)]*\))?\s+(\d+)\s+points?', content)
+            if not title_match:
+                # Try without domain — just title then points
+                title_match = re.match(r'^(.+?)\s+(\d+)\s+points?', content)
+            if not title_match:
                 continue
-            if re.match(r'^(hide|past|comments?|favorite|flag|from|by|submit)', candidate, re.I):
-                continue
-            if len(candidate) < 8:
-                continue
-            # Looks like a title
-            return candidate
-        return None
 
-    def _find_url_near(self, lines: list[str], idx: int) -> str | None:
-        """Look for a URL-like string near a score line."""
-        # Scan a window around the score line
-        for offset in range(-6, 4):
-            i = idx + offset
-            if i < 0 or i >= len(lines):
+            title = title_match.group(1).strip()
+            score = int(title_match.group(2))
+
+            # Skip obvious non-stories (too short, navigation text)
+            if len(title) < 8:
                 continue
-            # URLs in cleaned text often appear as bare domain hints like "(github.com)"
-            # but we don't have real href data here — return None and let the
-            # caller fall back to the HN front page.
-        return None
+            if re.match(r'^(hide|past|comments?|flag|from|by|submit|login|more)', title, re.I):
+                continue
+
+            # Extract domain hint from parentheses e.g. "( github.com )"
+            domain_match = re.search(r'\(\s*([\w.-]+\.\w+)\s*\)', content[:200])
+            domain = domain_match.group(1) if domain_match else None
+
+            stories.append({
+                "title": title,
+                "url": f"https://{domain}" if domain else HN_FRONT_PAGE,
+                "domain": domain,
+                "score": score,
+            })
+
+        return stories
 
     # ------------------------------------------------------------------
     # Scoring / shortlisting
@@ -237,11 +212,12 @@ class HNDigestSkill:
         url = story["url"]
         title = story["title"]
         score = story["score"]
+        domain = story.get("domain")
 
         logger.info("HN Digest: fetching '%s'", title)
 
-        # Don't try to fetch HN itself as an article
-        if url == HN_FRONT_PAGE or "news.ycombinator.com" in url:
+        # Don't try to fetch bare HN or domainless stories
+        if not domain or url == HN_FRONT_PAGE or "news.ycombinator.com" in url:
             return {
                 "title": title,
                 "url": url,
@@ -275,9 +251,7 @@ class HNDigestSkill:
         """
         Produce a tight summary from article content.
 
-        This is a lightweight extractive summariser — it takes the first
-        meaningful paragraphs up to ~1500 chars. Claude will synthesise
-        the actual digest from the saved notes, so we just need the key facts.
+        Takes the first meaningful paragraphs up to ~1500 chars.
         """
         # Strip very short lines (navigation, headers, etc.)
         lines = [l.strip() for l in content.splitlines() if len(l.strip()) > 60]
