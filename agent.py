@@ -21,8 +21,7 @@ from config import (
 )
 from prompts import load_system_prompt, EMAIL_RECEIVED_TEMPLATE, TELEGRAM_MESSAGE_TEMPLATE
 from tools import TOOLS, handle_tool_call
-from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService
-from services.fetch_service import FetchService
+from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService, FetchService
 from utils import build_messages, is_authorized_email_sender, is_authorized_telegram_user
 
 logging.basicConfig(
