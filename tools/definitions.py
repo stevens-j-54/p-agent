@@ -359,6 +359,22 @@ TOOLS = [
             "required": ["url"]
         }
     },
+    # --- Skills ---
+    {
+        "name": "run_hn_digest",
+        "description": (
+            "Run the Hacker News digest skill. Fetches the HN front page, identifies the most "
+            "relevant stories for Hugh's work (AI, agents, software engineering, startups, dev tools), "
+            "fetches and summarises each one, saves the results to the workspace under "
+            "research/hn-YYYY-MM-DD/, and returns a compact index. "
+            "Use this when asked for a daily HN digest or 'what's on HN today'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
     # --- Agent-core tools ---
     {
         "name": "list_agent_core",

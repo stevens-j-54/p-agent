@@ -22,6 +22,7 @@ from config import (
 from prompts import load_system_prompt, EMAIL_RECEIVED_TEMPLATE, TELEGRAM_MESSAGE_TEMPLATE
 from tools import TOOLS, handle_tool_call
 from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService, FetchService
+from skills import HNDigestSkill
 from utils import build_messages, is_authorized_email_sender, is_authorized_telegram_user
 
 logging.basicConfig(
@@ -56,6 +57,7 @@ class EmailAgent:
         self.fetch_service = FetchService()
         self._anthropic_next_allowed_ts = 0.0
         self._anthropic_last_call_ts = 0.0
+        self._skills: dict = {}
 
     def get_workspace(self, repo_name: str = "workspace") -> Workspace:
         """Get (or lazily initialise) a workspace for the given repo name."""
@@ -73,6 +75,7 @@ class EmailAgent:
             "github": self.github_service,
             "agent_core": self.agent_core,
             "fetch": self.fetch_service,
+            "skills": self._skills,
         }
 
     def init_email(self):
@@ -191,6 +194,15 @@ class EmailAgent:
         """Initialize the agent-core configuration repo."""
         self.agent_core = AgentCore()
         self.agent_core.init()
+        return self
+
+    def init_skills(self):
+        """Initialize skills, wiring in required services."""
+        self._skills["hn_digest"] = HNDigestSkill(
+            fetch_service=self.fetch_service,
+            workspace_fn=self.get_workspace,
+        )
+        logger.info("Skills initialised: %s", list(self._skills.keys()))
         return self
 
     def sync_codebase(self):
@@ -365,6 +377,7 @@ def run_agent():
     agent.init_github()
     agent.init_workspace()
     agent.init_agent_core()
+    agent.init_skills()
     agent.init_telegram()
     agent.sync_codebase()
 

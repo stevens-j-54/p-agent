@@ -203,6 +203,16 @@ def handle_fetch_url(fetch, url: str) -> str:
     return json.dumps(result)
 
 
+# --- Skills handlers ---
+
+def handle_run_hn_digest(skills) -> str:
+    logger.info("Running HN digest skill")
+    result = skills["hn_digest"].run()
+    if not result.get("success"):
+        logger.error("HN digest failed: %s", result.get('error'))
+    return json.dumps(result)
+
+
 # --- Agent-core handlers ---
 
 def handle_list_agent_core(agent_core) -> str:
@@ -243,6 +253,7 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
     gh = services.get("github")
     ac = services.get("agent_core")
     ft = services.get("fetch")
+    sk = services.get("skills", {})
     rn = tool_input.get("repo_name", "workspace")  # default repo for workspace tools
 
     dispatch = {
@@ -273,6 +284,8 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
         "open_upstream_pr": lambda: handle_open_upstream_pr(gh, tool_input["title"], tool_input["body"], tool_input["branch_name"], tool_input.get("base_branch", "main")),
         # Fetch
         "fetch_url":        lambda: handle_fetch_url(ft, tool_input["url"]),
+        # Skills
+        "run_hn_digest":    lambda: handle_run_hn_digest(sk),
         # Agent-core
         "list_agent_core":  lambda: handle_list_agent_core(ac),
         "read_agent_core":  lambda: handle_read_agent_core(ac, tool_input["file_path"]),
