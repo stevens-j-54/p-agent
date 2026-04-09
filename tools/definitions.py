@@ -375,6 +375,92 @@ TOOLS = [
             "required": []
         }
     },
+    # --- Scheduling tools ---
+    {
+        "name": "add_scheduled_task",
+        "description": (
+            "Schedule a task to run once at a future datetime or on a recurring cron schedule. "
+            "Use instruction_type='skill' to run a registered skill (e.g. 'run_hn_digest') directly — "
+            "no extra Claude credits are used at runtime. "
+            "Use instruction_type='natural_language' to run a text instruction via Claude when the task fires. "
+            "cron uses standard 5-field UTC syntax, e.g. '0 9 * * 1-5' for weekday 09:00 UTC. "
+            "run_at uses ISO 8601 UTC, e.g. '2027-04-13T09:00:00Z'. "
+            "The dashboard at https://stevens-j-54.github.io is auto-updated after adding."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Short human-readable task name, e.g. 'Morning HN Digest'."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["recurring", "one_time"],
+                    "description": "'recurring' fires on a cron schedule; 'one_time' fires at a specific datetime."
+                },
+                "cron": {
+                    "type": "string",
+                    "description": (
+                        "Required for recurring tasks. Standard 5-field cron in UTC. "
+                        "Examples: '0 9 * * 1-5' (weekday 09:00), '30 7 * * *' (daily 07:30), "
+                        "'0 8 * * 1' (Monday 08:00)."
+                    )
+                },
+                "run_at": {
+                    "type": "string",
+                    "description": (
+                        "Required for one_time tasks. ISO 8601 UTC datetime. "
+                        "Example: '2027-04-13T09:00:00Z'."
+                    )
+                },
+                "instruction": {
+                    "type": "string",
+                    "description": (
+                        "What to do when the task fires. "
+                        "For instruction_type='skill': the skill name, e.g. 'run_hn_digest'. "
+                        "For instruction_type='natural_language': a plain-English instruction."
+                    )
+                },
+                "instruction_type": {
+                    "type": "string",
+                    "enum": ["skill", "natural_language"],
+                    "description": (
+                        "'skill' calls a Python skill directly (zero extra credits). "
+                        "'natural_language' runs the instruction through Claude with a lean prompt."
+                    )
+                }
+            },
+            "required": ["name", "type", "instruction", "instruction_type"]
+        }
+    },
+    {
+        "name": "remove_scheduled_task",
+        "description": (
+            "Remove a scheduled task by its ID. "
+            "Use list_scheduled_tasks first to find the task ID. "
+            "The dashboard is auto-updated after removal."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The UUID of the task to remove."
+                }
+            },
+            "required": ["task_id"]
+        }
+    },
+    {
+        "name": "list_scheduled_tasks",
+        "description": "List all scheduled tasks, including active, paused, and recently completed ones.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
     # --- Agent-core tools ---
     {
         "name": "list_agent_core",

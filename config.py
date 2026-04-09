@@ -33,3 +33,9 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_AUTHORIZED_IDS = json.loads(os.getenv("TELEGRAM_AUTHORIZED_IDS", "[]"))
+_owner_chat_id_raw = os.getenv("TELEGRAM_OWNER_CHAT_ID", "")
+TELEGRAM_OWNER_CHAT_ID = int(_owner_chat_id_raw) if _owner_chat_id_raw.strip() else None
+
+# Dashboard (GitHub Pages)
+DASHBOARD_REPO_NAME = f"{GITHUB_USERNAME}/{GITHUB_USERNAME}.github.io"
+DASHBOARD_DIR = Path("./dashboard-repo")

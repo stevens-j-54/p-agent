@@ -17,12 +17,13 @@ from config import (
     AUTHORIZED_SENDERS,
     CLAUDE_MODEL,
     TELEGRAM_BOT_TOKEN,
+    TELEGRAM_OWNER_CHAT_ID,
     AGENT_CORE_DIR,
 )
 from prompts import load_system_prompt, EMAIL_RECEIVED_TEMPLATE, TELEGRAM_MESSAGE_TEMPLATE
 from tools import TOOLS, handle_tool_call
-from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService, FetchService
-from skills import HNDigestSkill
+from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService, FetchService, SchedulerService
+from skills import HNDigestSkill, DashboardSkill
 from utils import build_messages, is_authorized_email_sender, is_authorized_telegram_user
 
 logging.basicConfig(
@@ -58,6 +59,8 @@ class EmailAgent:
         self._anthropic_next_allowed_ts = 0.0
         self._anthropic_last_call_ts = 0.0
         self._skills: dict = {}
+        self.scheduler: SchedulerService | None = None
+        self.dashboard_skill: DashboardSkill | None = None
 
     def get_workspace(self, repo_name: str = "workspace") -> Workspace:
         """Get (or lazily initialise) a workspace for the given repo name."""
@@ -76,6 +79,8 @@ class EmailAgent:
             "agent_core": self.agent_core,
             "fetch": self.fetch_service,
             "skills": self._skills,
+            "scheduler": self.scheduler,
+            "dashboard": self.dashboard_skill,
         }
 
     def init_email(self):
@@ -204,6 +209,54 @@ class EmailAgent:
         )
         logger.info("Skills initialised: %s", list(self._skills.keys()))
         return self
+
+    def init_scheduler(self):
+        """Initialize the task scheduler, loading persisted tasks from agent-core."""
+        self.scheduler = SchedulerService(self.agent_core)
+        self.scheduler.load_tasks()
+        logger.info("Scheduler initialised with %d task(s)", len(self.scheduler.list_tasks()))
+        return self
+
+    def init_dashboard(self):
+        """Initialize the dashboard skill (does not clone repo yet — lazy on first update)."""
+        self.dashboard_skill = DashboardSkill(
+            github_service=self.github_service,
+            agent_core=self.agent_core,
+        )
+        logger.info("Dashboard skill initialised")
+        return self
+
+    def execute_scheduled_task(self, task: dict) -> str:
+        """
+        Execute a scheduled task.
+        - skill tasks: call the Python skill directly (no Claude API call)
+        - natural_language tasks: call Claude with a lean system prompt
+        """
+        if task["instruction_type"] == "skill":
+            skill = self._skills.get(task["instruction"])
+            if not skill:
+                return f"Unknown skill: {task['instruction']}"
+            result = skill.run()
+            return json.dumps(result)
+        else:
+            system_prompt = self._build_scheduled_task_prompt()
+            messages = [{"role": "user", "content": task["instruction"]}]
+            return self._run_claude(messages, system_prompt)
+
+    def _build_scheduled_task_prompt(self) -> str:
+        """
+        Lean system prompt for scheduled natural-language tasks.
+        Includes identity + memory only — no workspace/codebase context.
+        This keeps credit usage low for simple recurring instructions.
+        """
+        from prompts.system import _load_file, DEFAULT_IDENTITY, DEFAULT_SOUL, DEFAULT_MEMORY
+        identity = _load_file("IDENTITY.md", DEFAULT_IDENTITY)
+        soul = _load_file("SOUL.md", DEFAULT_SOUL)
+        memory = _load_file("MEMORY.md", DEFAULT_MEMORY)
+        return (
+            f"{identity}\n\n---\n\n{soul}\n\n---\n\n## Memory\n\n{memory}\n\n---\n\n"
+            "You are running a scheduled task. Complete the instruction below and respond with the result."
+        )
 
     def sync_codebase(self):
         """
@@ -378,6 +431,8 @@ def run_agent():
     agent.init_workspace()
     agent.init_agent_core()
     agent.init_skills()
+    agent.init_scheduler()
+    agent.init_dashboard()
     agent.init_telegram()
     agent.sync_codebase()
 
@@ -447,6 +502,24 @@ def run_agent():
 
                     agent.telegram_service.send_message(chat_id, response)
                     logger.info("Telegram reply sent")
+
+            # --- Scheduler ---
+            if agent.scheduler:
+                due_tasks = agent.scheduler.get_due_tasks()
+                for task in due_tasks:
+                    logger.info("Running scheduled task: %s (id=%s)", task["name"], task["id"])
+                    try:
+                        result = agent.execute_scheduled_task(task)
+                        agent.scheduler.mark_task_complete(task["id"])
+                        agent.dashboard_skill.update()
+                        if TELEGRAM_OWNER_CHAT_ID and agent.telegram_service:
+                            msg = f"Scheduled task complete: {task['name']}\n\n{result}"
+                            agent.telegram_service.send_message(TELEGRAM_OWNER_CHAT_ID, msg)
+                        logger.info("Scheduled task done: %s", task["name"])
+                    except Exception as task_err:
+                        logger.error(
+                            "Scheduled task '%s' failed: %s", task["name"], task_err, exc_info=True
+                        )
 
             time.sleep(POLL_INTERVAL_SECONDS)
 

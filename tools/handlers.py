@@ -213,6 +213,33 @@ def handle_run_hn_digest(skills) -> str:
     return json.dumps(result)
 
 
+# --- Scheduling handlers ---
+
+def handle_add_scheduled_task(scheduler, dashboard, tool_input: dict) -> str:
+    result = scheduler.add_task(tool_input)
+    if result.get("success"):
+        logger.info("Task added: %s — updating dashboard", result["task"]["name"])
+        dashboard.update()
+    else:
+        logger.error("Failed to add task: %s", result.get("error"))
+    return json.dumps(result)
+
+
+def handle_remove_scheduled_task(scheduler, dashboard, task_id: str) -> str:
+    result = scheduler.remove_task(task_id)
+    if result.get("success"):
+        logger.info("Task removed: %s — updating dashboard", task_id)
+        dashboard.update()
+    else:
+        logger.error("Failed to remove task: %s", result.get("error"))
+    return json.dumps(result)
+
+
+def handle_list_scheduled_tasks(scheduler) -> str:
+    tasks = scheduler.list_tasks()
+    return json.dumps({"success": True, "tasks": tasks, "count": len(tasks)})
+
+
 # --- Agent-core handlers ---
 
 def handle_list_agent_core(agent_core) -> str:
@@ -254,6 +281,8 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
     ac = services.get("agent_core")
     ft = services.get("fetch")
     sk = services.get("skills", {})
+    sc = services.get("scheduler")
+    db = services.get("dashboard")
     rn = tool_input.get("repo_name", "workspace")  # default repo for workspace tools
 
     dispatch = {
@@ -286,6 +315,10 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
         "fetch_url":        lambda: handle_fetch_url(ft, tool_input["url"]),
         # Skills
         "run_hn_digest":    lambda: handle_run_hn_digest(sk),
+        # Scheduling
+        "add_scheduled_task":    lambda: handle_add_scheduled_task(sc, db, tool_input),
+        "remove_scheduled_task": lambda: handle_remove_scheduled_task(sc, db, tool_input["task_id"]),
+        "list_scheduled_tasks":  lambda: handle_list_scheduled_tasks(sc),
         # Agent-core
         "list_agent_core":  lambda: handle_list_agent_core(ac),
         "read_agent_core":  lambda: handle_read_agent_core(ac, tool_input["file_path"]),

@@ -7,5 +7,6 @@ named, repeatable action.
 """
 
 from .hn_digest import HNDigestSkill
+from .dashboard import DashboardSkill
 
-__all__ = ["HNDigestSkill"]
+__all__ = ["HNDigestSkill", "DashboardSkill"]
