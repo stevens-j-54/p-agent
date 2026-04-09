@@ -41,6 +41,9 @@ MAX_TELEGRAM_HISTORY = 20  # message turns to keep per chat session
 ANTHROPIC_MIN_REQUEST_INTERVAL_SECONDS = 0.5
 ANTHROPIC_MAX_RETRIES = 10
 ANTHROPIC_BACKOFF_INITIAL_SECONDS = 1.0
+# 529 "Overloaded" is server-side and clears much more slowly than a network
+# hiccup.  Starting the backoff at 1 s wastes the first several retries.
+ANTHROPIC_OVERLOAD_BACKOFF_INITIAL_SECONDS = 5.0
 ANTHROPIC_BACKOFF_MAX_SECONDS = 60.0
 
 
@@ -164,15 +167,24 @@ class EmailAgent:
             except Exception as e:
                 retry_after = self._extract_retry_after_seconds(e)
                 if retry_after is not None:
-                    # Add a small cushion to avoid cutting it too close.
+                    # 429: the API told us how long to wait.  Add a small cushion.
                     delay = max(0.0, retry_after) + 0.25
                     self._anthropic_next_allowed_ts = max(self._anthropic_next_allowed_ts, time.time() + delay)
                     logger.info("Anthropic 429 — retrying in %.3f seconds", delay)
                 else:
-                    # Unknown transient: exponential backoff.
+                    # 529 Overloaded or other transient: exponential backoff.
+                    # For 529 specifically, bump the floor on the very first attempt —
+                    # server overload clears in seconds-to-minutes, not milliseconds,
+                    # so starting at 1 s wastes early retries.
+                    status_code = getattr(getattr(e, "response", None), "status_code", None)
+                    if status_code == 529 and backoff == ANTHROPIC_BACKOFF_INITIAL_SECONDS:
+                        backoff = ANTHROPIC_OVERLOAD_BACKOFF_INITIAL_SECONDS
                     delay = min(backoff, ANTHROPIC_BACKOFF_MAX_SECONDS)
                     self._anthropic_next_allowed_ts = max(self._anthropic_next_allowed_ts, time.time() + delay)
-                    logger.info("Anthropic request failed — retrying in %.3f seconds (%s)", delay, type(e).__name__)
+                    if status_code == 529:
+                        logger.info("Anthropic API overloaded (529) — retrying in %.3f seconds", delay)
+                    else:
+                        logger.info("Anthropic request failed — retrying in %.3f seconds (%s)", delay, type(e).__name__)
                     backoff = min(backoff * 2.0, ANTHROPIC_BACKOFF_MAX_SECONDS)
 
                 attempt += 1
@@ -200,7 +212,6 @@ class EmailAgent:
         """Initialize skills, wiring in required services."""
         self._skills["hn_digest"] = HNDigestSkill(
             fetch_service=self.fetch_service,
-            workspace_fn=self.get_workspace,
         )
         logger.info("Skills initialised: %s", list(self._skills.keys()))
         return self

@@ -363,11 +363,13 @@ TOOLS = [
     {
         "name": "run_hn_digest",
         "description": (
-            "Run the Hacker News digest skill. Fetches the HN front page, identifies the most "
-            "relevant stories for Hugh's work (AI, agents, software engineering, startups, dev tools), "
-            "fetches and summarises each one, saves the results to the workspace under "
-            "research/hn-YYYY-MM-DD/, and returns a compact index. "
-            "Use this when asked for a daily HN digest or 'what's on HN today'."
+            "Run the Hacker News digest skill. Fetches the top HN stories via the Firebase API, "
+            "scores them for relevance to Hugh's work (AI, agents, software engineering, startups, "
+            "dev tools), fetches the full text of each article, and returns structured data. "
+            "After calling this tool, YOU must: (1) write a genuine summary of each article from "
+            "its raw content, (2) identify themes, connections, and insights across all articles, "
+            "and (3) save structured notes to the workspace under the returned output_folder using "
+            "save_document. Use this when asked for a daily HN digest or 'what's on HN today'."
         ),
         "input_schema": {
             "type": "object",
