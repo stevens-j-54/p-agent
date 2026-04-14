@@ -381,14 +381,14 @@ TOOLS = [
         "name": "fetch_vietnamese_articles",
         "description": (
             "Fetch recent article listings from Vietnamese news sites (VNExpress, Tuổi Trẻ, "
-            "Thanh Niên) for a Vietnamese language study exercise. "
-            "Returns the plain-text content of 1–3 section pages so you can identify "
-            "suitable article headlines. "
-            "After calling this: (1) scan the returned page text for article titles, "
-            "(2) pick one whose vocabulary seems accessible for a B1→B2 learner, "
-            "(3) call fetch_url on the article URL to get its full text, "
-            "(4) select a self-contained paragraph of 150–300 words, "
-            "(5) present the Vietnamese paragraph to the user for translation. "
+            "Thanh Niên) for topic and theme inspiration for a Vietnamese study exercise. "
+            "Returns best-effort plain-text content from 1–3 section pages. "
+            "Fetching is resilient — partial or sparse results are normal and still useful. "
+            "Use the returned content for INSPIRATION ONLY: read the headlines/snippets to "
+            "understand what topics are current, then WRITE YOUR OWN Vietnamese paragraph "
+            "at the correct B1→B2 level. Do not copy-paste from the fetched content. "
+            "See the Vietnamese Language Study section of your instructions for the full "
+            "exercise workflow, including how to incorporate vocab review words. "
             "Use the topic parameter to match the user's interests."
         ),
         "input_schema": {
