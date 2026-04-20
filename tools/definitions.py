@@ -410,6 +410,83 @@ TOOLS = [
             "required": []
         }
     },
+    {
+        "name": "prepare_vietnamese_chat",
+        "description": (
+            "One-step prep for any Vietnamese study session (translation exercise or conversation). "
+            "Fetches recent Vietnamese news headlines for topic inspiration AND loads vocab entries "
+            "due for spaced-repetition review — all in a single call. "
+            "Prefer this over calling fetch_vietnamese_articles and read_agent_core separately. "
+            "Returns: news content from Vietnamese sites + a due_for_review list of up to 3 vocab "
+            "entries (sorted by review priority: never-practiced first, then oldest). "
+            "Use the returned due_for_review words in the paragraph or conversation naturally."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "enum": ["current_affairs", "nature", "food", "travel"],
+                    "description": (
+                        "Optional topic filter. "
+                        "current_affairs = world/domestic news (thế giới / thời sự), "
+                        "nature = science and environment (khoa học), "
+                        "food = cuisine and recipes (ẩm thực), "
+                        "travel = travel and tourism (du lịch). "
+                        "Omit to sample from all sections."
+                    )
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "save_vietnamese_session",
+        "description": (
+            "Atomically save a completed Vietnamese study session and update the vocab list. "
+            "Handles both translation exercises (mode='exercise') and conversation sessions "
+            "(mode='conversation'). Must be called at the end of every study session. "
+            "Saves the session record to exercises/ in agent-core, increments practice_count "
+            "and sets last_practiced for each word in words_practiced, and appends any new_entries "
+            "to the vocab list (duplicates are silently skipped). "
+            "Prefer this over calling create_agent_core and update_agent_core separately."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_record": {
+                    "type": "object",
+                    "description": (
+                        "Full session JSON. Required fields: date (YYYY-MM-DD), mode ('exercise' or "
+                        "'conversation'), topic. For exercise mode also include: paragraph_vi, "
+                        "vocab_reviewed, vocab_new_introduced, user_translation, correction_notes, "
+                        "vocab_added_to_list, inspiration_source. "
+                        "For conversation mode also include: conversation_summary, vocab_reviewed, "
+                        "vocab_new_introduced, correction_notes, vocab_added_to_list, inspiration_source."
+                    )
+                },
+                "words_practiced": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Vietnamese words (strings) from the vocab list that were genuinely reviewed "
+                        "during this session. practice_count will be incremented and last_practiced "
+                        "set to today for each."
+                    )
+                },
+                "new_entries": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "New vocab entries to add to the list. Each must follow the vocab entry schema: "
+                        "vietnamese, english, word_type, source, sample_sentences (3 vi/en pairs). "
+                        "Duplicates (same vietnamese + same English meaning) are silently skipped."
+                    )
+                }
+            },
+            "required": ["session_record"]
+        }
+    },
     # --- Scheduling tools ---
     {
         "name": "add_scheduled_task",

@@ -23,7 +23,7 @@ from config import (
 from prompts import load_system_prompt, load_lean_system_prompt, EMAIL_RECEIVED_TEMPLATE, TELEGRAM_MESSAGE_TEMPLATE
 from tools import TOOLS, handle_tool_call
 from services import Workspace, EmailService, AgentCore, GitHubService, TelegramService, FetchService, SchedulerService
-from skills import HNDigestSkill, DashboardSkill, VietnameseStudySkill
+from skills import HNDigestSkill, DashboardSkill, VietnameseStudySkill, VietnameseVocabSkill
 from utils import build_messages, is_authorized_email_sender, is_authorized_telegram_user
 
 logging.basicConfig(
@@ -219,6 +219,10 @@ class EmailAgent:
             fetch_service=self.fetch_service,
         )
         self._skills["vietnamese_study"] = VietnameseStudySkill(
+            fetch_service=self.fetch_service,
+        )
+        self._skills["vietnamese_vocab"] = VietnameseVocabSkill(
+            agent_core=self.agent_core,
             fetch_service=self.fetch_service,
         )
         logger.info("Skills initialised: %s", list(self._skills.keys()))

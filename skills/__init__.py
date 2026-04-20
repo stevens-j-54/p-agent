@@ -9,5 +9,6 @@ named, repeatable action.
 from .hn_digest import HNDigestSkill
 from .dashboard import DashboardSkill
 from .vietnamese_study import VietnameseStudySkill
+from .vietnamese_vocab import VietnameseVocabSkill
 
-__all__ = ["HNDigestSkill", "DashboardSkill", "VietnameseStudySkill"]
+__all__ = ["HNDigestSkill", "DashboardSkill", "VietnameseStudySkill", "VietnameseVocabSkill"]
