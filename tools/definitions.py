@@ -413,30 +413,16 @@ TOOLS = [
     {
         "name": "prepare_vietnamese_chat",
         "description": (
-            "One-step prep for any Vietnamese study session (translation exercise or conversation). "
-            "Fetches recent Vietnamese news headlines for topic inspiration AND loads vocab entries "
-            "due for spaced-repetition review — all in a single call. "
-            "Prefer this over calling fetch_vietnamese_articles and read_agent_core separately. "
-            "Returns: news content from Vietnamese sites + a due_for_review list of up to 3 vocab "
-            "entries (sorted by review priority: never-practiced first, then oldest). "
-            "Use the returned due_for_review words in the paragraph or conversation naturally."
+            "Load vocab entries due for spaced-repetition review. "
+            "Call this at the start of any Vietnamese study session before choosing a topic. "
+            "Returns due_for_review: up to 3 vocab entries sorted by review priority "
+            "(never-practiced first, then oldest last_practiced). "
+            "Use the returned words to choose a topic where they arise naturally — "
+            "do NOT pick a topic first and then force the words in."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {
-                "topic": {
-                    "type": "string",
-                    "enum": ["current_affairs", "nature", "food", "travel"],
-                    "description": (
-                        "Optional topic filter. "
-                        "current_affairs = world/domestic news (thế giới / thời sự), "
-                        "nature = science and environment (khoa học), "
-                        "food = cuisine and recipes (ẩm thực), "
-                        "travel = travel and tourism (du lịch). "
-                        "Omit to sample from all sections."
-                    )
-                }
-            },
+            "properties": {},
             "required": []
         }
     },

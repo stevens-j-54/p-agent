@@ -221,9 +221,9 @@ def handle_fetch_vietnamese_articles(skills, topic: str = None) -> str:
     return json.dumps(result)
 
 
-def handle_prepare_vietnamese_chat(skills, topic: str = None) -> str:
-    logger.info("Preparing Vietnamese chat (topic=%s)", topic or "all")
-    result = skills["vietnamese_vocab"].prepare_chat(topic=topic)
+def handle_prepare_vietnamese_chat(skills) -> str:
+    logger.info("Preparing Vietnamese chat (loading vocab due for review)")
+    result = skills["vietnamese_vocab"].prepare_chat()
     if not result.get("success"):
         logger.error("Vietnamese chat prep failed: %s", result.get('error'))
     return json.dumps(result)
@@ -350,7 +350,7 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
         # Skills
         "run_hn_digest":    lambda: handle_run_hn_digest(sk),
         "fetch_vietnamese_articles": lambda: handle_fetch_vietnamese_articles(sk, tool_input.get("topic")),
-        "prepare_vietnamese_chat": lambda: handle_prepare_vietnamese_chat(sk, tool_input.get("topic")),
+        "prepare_vietnamese_chat": lambda: handle_prepare_vietnamese_chat(sk),
         "save_vietnamese_session": lambda: handle_save_vietnamese_session(
             sk,
             tool_input.get("session_record", {}),

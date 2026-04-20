@@ -1,21 +1,17 @@
 """
 Vietnamese Vocab Skill
 
-Combines article fetching and vocab management into two efficient methods:
-  - prepare_chat(): fetches news + loads vocab due for review in one tool call
+Two efficient methods for Vietnamese study sessions:
+  - prepare_chat(): loads vocab due for review — agent picks its own topic
   - save_session(): saves session record + updates vocab list atomically
 
-This halves the number of Claude tool calls per study session compared to
-calling fetch_vietnamese_articles + read_agent_core + create_agent_core +
-update_agent_core separately.
+This keeps Claude tool calls per study session to a minimum (2 total).
 """
 
 import json
 import logging
 import uuid
 from datetime import date, datetime, timezone
-
-from .vietnamese_study import VietnameseStudySkill
 
 logger = logging.getLogger(__name__)
 
@@ -29,48 +25,36 @@ class VietnameseVocabSkill:
 
     Depends on:
       - agent_core: AgentCore — for reading/writing vocab and session files
-      - fetch_service: FetchService — passed to VietnameseStudySkill for news fetching
     """
 
-    def __init__(self, agent_core, fetch_service):
+    def __init__(self, agent_core):
         self.agent_core = agent_core
-        self._news_skill = VietnameseStudySkill(fetch_service=fetch_service)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def prepare_chat(self, topic: str = None) -> dict:
+    def prepare_chat(self) -> dict:
         """
-        One-step prep for any Vietnamese study session.
+        Load vocab entries due for spaced-repetition review.
 
-        Returns news content from Vietnamese sources plus vocab entries due
-        for spaced-repetition review. Designed to replace two separate calls
-        (fetch_vietnamese_articles + read_agent_core).
-
-        Parameters
-        ----------
-        topic : str, optional
-            One of "current_affairs", "nature", "food", "travel".
+        The agent uses the returned words to choose a topic where they arise
+        naturally — not the other way round.
 
         Returns
         -------
         dict with:
           - success: bool
-          - news: dict  (result from VietnameseStudySkill)
           - vocab: dict
               - total_entries: int
               - due_for_review: list[dict]  (up to MAX_REVIEW_WORDS entries)
         """
         try:
-            news = self._news_skill.run(topic=topic)
-
             vocab_data = self._load_vocab()
             due = self._select_due_words(vocab_data.get("entries", []))
 
             return {
                 "success": True,
-                "news": news,
                 "vocab": {
                     "total_entries": len(vocab_data.get("entries", [])),
                     "due_for_review": due,

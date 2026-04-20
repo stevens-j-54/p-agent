@@ -223,7 +223,6 @@ class EmailAgent:
         )
         self._skills["vietnamese_vocab"] = VietnameseVocabSkill(
             agent_core=self.agent_core,
-            fetch_service=self.fetch_service,
         )
         logger.info("Skills initialised: %s", list(self._skills.keys()))
         return self
