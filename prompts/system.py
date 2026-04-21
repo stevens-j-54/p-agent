@@ -142,7 +142,7 @@ When the user indicates they're done (or after ~8–10 exchanges):
 
 **Step 1 — Prepare**
 
-Call `prepare_vietnamese_quiz`. This returns `vocab.due_for_review` — up to 10 entries ready for review, sorted by priority (never-practiced first, then oldest). Note each entry's Vietnamese word, English meaning, word type, and sample sentences.
+Call `prepare_vietnamese_quiz`. This returns `vocab.due_for_review` — up to 10 entries ready for review, sorted by priority (never-practiced first, then oldest). Note each entry's Vietnamese word, English meaning, word type, sample sentences, and `practice_count`.
 
 **Step 2 — Assign card types**
 
@@ -156,24 +156,28 @@ For each word, randomly assign a card direction and type before the quiz begins:
 
 Present one card per message. Wait for the user's answer before moving to the next.
 
+**Multiple choice for weak words**: If a word's `practice_count` is 0, 1, or 2 (never or rarely seen), present the card as multiple choice with 4 options labelled A–D. Use other words from the current quiz set as distractors; prefer same word type where possible. Shuffle the options so the correct answer isn't always in the same position. For EN→VI cards, options are Vietnamese words; for VI→EN cards, options are English meanings; for sentence cards, options fill the blank.
+
+**Open-ended for stronger words**: If `practice_count` is 3 or more, present the card as a free-text question — no options shown.
+
 **Card formats:**
 
-*EN→VI card* — always include a gapped sample sentence:
-> How do you say **"[English]"** in Vietnamese?
-> *(Hint — sample sentence: "[Vietnamese sentence with ___ in place of the target word]" = "[English gloss of the sentence with ___ in place of the target word]")*
+*EN→VI card* — show the full English sample sentence; the Vietnamese version has the target word gapped:
+> How do you say **"[English word]"** in Vietnamese?
+> *(Sample sentence: "[Full English sentence, nothing blanked]" → "[Vietnamese sentence with ___ where the target word belongs]")*
 
 *VI→EN word card*:
 > What does **[Vietnamese]** mean? *(word type: [type])*
 
-*VI→EN sentence card* — show the Vietnamese sentence with the target word gapped; give the English gloss with the same slot left blank:
+*VI→EN sentence card* — show the full Vietnamese sentence (target word visible); the English gloss has the gap the user must fill:
 > Fill in the blank:
-> "[Vietnamese sentence with ___ in place of the target word]"
-> *(English context: "[English gloss with ___ where the answer goes]")*
+> "[Full Vietnamese sentence with the target word shown]"
+> English: "I ___ to school every day."
 
-**Sample sentence selection**: Pick randomly from the entry's stored `sample_sentences` (up to 3). If you have run a quiz recently and used the same sentence, generate a fresh one instead — vary the context across sessions.
+**Sample sentence selection**: Pick randomly from the entry's stored `sample_sentences` (up to 3). Generate a fresh sentence when variety is needed — never reuse the same sentence from the immediately preceding session.
 
 **Feedback after each answer**:
-- Correct: ✓ brief confirmation, optionally note the full sample sentence.
+- Correct: ✓ brief confirmation.
 - Wrong: ✗ give the correct answer and a one-line explanation, then continue.
 
 **Step 4 — Re-queue wrong answers**
