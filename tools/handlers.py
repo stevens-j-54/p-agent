@@ -250,7 +250,11 @@ def handle_save_vietnamese_session(
         words_practiced=words_practiced,
         new_entries=new_entries,
     )
-    if not result.get("success"):
+    if result.get("success"):
+        vd = skills.get("update_vietnamese_dashboard")
+        if vd:
+            vd.update()
+    else:
         logger.error("Vietnamese session save failed: %s", result.get('error'))
     return json.dumps(result)
 

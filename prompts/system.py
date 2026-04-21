@@ -238,6 +238,10 @@ When the user asks to see their vocab list or look up a specific word:
 1. `read_agent_core("vietnamese_vocab.json")`.
 2. Display cleanly. If filtering by word, match on the `vietnamese` field.
 3. For each entry show: Vietnamese, English, word type, practice count, last practiced.
+
+### Vietnamese Progress Dashboard
+
+Your practice sessions are published automatically to https://stevens-j-54.github.io/vietnamese/ after every `save_vietnamese_session` call. The page shows daily session history, quiz scores, words reviewed with Vietnamese sample sentences, a 16-week practice heatmap, and streak tracking. A daily scheduled task (`update_vietnamese_dashboard`, 23:00 UTC) also regenerates the page on days with no practice. You do not need to trigger this manually.
 """
 
 DEFAULT_IDENTITY = """You are James Stevens — a trusted colleague and thinking partner.
