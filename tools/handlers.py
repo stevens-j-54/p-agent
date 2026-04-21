@@ -229,6 +229,14 @@ def handle_prepare_vietnamese_chat(skills) -> str:
     return json.dumps(result)
 
 
+def handle_prepare_vietnamese_quiz(skills, max_words: int = 10) -> str:
+    logger.info("Preparing Vietnamese quiz (max_words=%d)", max_words)
+    result = skills["vietnamese_vocab"].prepare_quiz(max_words=max_words)
+    if not result.get("success"):
+        logger.error("Vietnamese quiz prep failed: %s", result.get('error'))
+    return json.dumps(result)
+
+
 def handle_save_vietnamese_session(
     skills,
     session_record: dict,
@@ -351,6 +359,7 @@ def handle_tool_call(tool_name: str, tool_input: dict, services: dict) -> str:
         "run_hn_digest":    lambda: handle_run_hn_digest(sk),
         "fetch_vietnamese_articles": lambda: handle_fetch_vietnamese_articles(sk, tool_input.get("topic")),
         "prepare_vietnamese_chat": lambda: handle_prepare_vietnamese_chat(sk),
+        "prepare_vietnamese_quiz": lambda: handle_prepare_vietnamese_quiz(sk, tool_input.get("max_words", 10)),
         "save_vietnamese_session": lambda: handle_save_vietnamese_session(
             sk,
             tool_input.get("session_record", {}),

@@ -64,6 +64,38 @@ class VietnameseVocabSkill:
             logger.error("prepare_chat failed: %s", e, exc_info=True)
             return {"success": False, "error": str(e)}
 
+    def prepare_quiz(self, max_words: int = 10) -> dict:
+        """
+        Load vocab entries due for an Anki-style quiz session.
+
+        Like prepare_chat() but returns up to max_words entries (default 10)
+        instead of the fixed MAX_REVIEW_WORDS cap used for exercise/conversation
+        sessions.
+
+        Returns
+        -------
+        dict with:
+          - success: bool
+          - vocab: dict
+              - total_entries: int
+              - due_for_review: list[dict]  (up to max_words entries)
+        """
+        try:
+            vocab_data = self._load_vocab()
+            entries = vocab_data.get("entries", [])
+            due = self._select_due_words_n(entries, max_words)
+
+            return {
+                "success": True,
+                "vocab": {
+                    "total_entries": len(entries),
+                    "due_for_review": due,
+                },
+            }
+        except Exception as e:
+            logger.error("prepare_quiz failed: %s", e, exc_info=True)
+            return {"success": False, "error": str(e)}
+
     def save_session(
         self,
         session_record: dict,
@@ -125,9 +157,12 @@ class VietnameseVocabSkill:
 
     def _select_due_words(self, entries: list) -> list:
         """Return up to MAX_REVIEW_WORDS entries due for spaced-repetition review."""
+        return self._select_due_words_n(entries, MAX_REVIEW_WORDS)
+
+    def _select_due_words_n(self, entries: list, n: int) -> list:
+        """Return up to n entries due for spaced-repetition review."""
         today = date.today()
         due = []
-        not_due = []
 
         for entry in entries:
             lp = entry.get("last_practiced")
@@ -142,15 +177,12 @@ class VietnameseVocabSkill:
                     interval = max(3, pc * 2)
                     if days_since >= interval:
                         due.append((lp_date, entry))
-                    else:
-                        not_due.append(entry)
                 except ValueError:
                     due.append((None, entry))
 
         # Sort: null last_practiced first, then oldest last_practiced
         due.sort(key=lambda x: (x[0] is not None, x[0] or date.min))
-        selected = [entry for _, entry in due[:MAX_REVIEW_WORDS]]
-        return selected
+        return [entry for _, entry in due[:n]]
 
     def _save_session_record(self, session_record: dict) -> str:
         if "id" not in session_record:

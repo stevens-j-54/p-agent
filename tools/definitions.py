@@ -427,11 +427,32 @@ TOOLS = [
         }
     },
     {
+        "name": "prepare_vietnamese_quiz",
+        "description": (
+            "Load vocab entries due for an Anki-style quiz session. "
+            "Returns up to max_words due entries (default 10) — more than prepare_vietnamese_chat "
+            "which caps at 3. Call once at the start of a quiz session. "
+            "Returns due_for_review sorted by review priority (never-practiced first, "
+            "then oldest last_practiced)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_words": {
+                    "type": "integer",
+                    "description": "Maximum number of words to include in the quiz. Default 10.",
+                }
+            },
+            "required": []
+        }
+    },
+    {
         "name": "save_vietnamese_session",
         "description": (
             "Atomically save a completed Vietnamese study session and update the vocab list. "
-            "Handles both translation exercises (mode='exercise') and conversation sessions "
-            "(mode='conversation'). Must be called at the end of every study session. "
+            "Handles translation exercises (mode='exercise'), conversation sessions "
+            "(mode='conversation'), and Anki-style quiz sessions (mode='quiz'). "
+            "Must be called at the end of every study session. "
             "Saves the session record to exercises/ in agent-core, increments practice_count "
             "and sets last_practiced for each word in words_practiced, and appends any new_entries "
             "to the vocab list (duplicates are silently skipped). "
@@ -443,12 +464,15 @@ TOOLS = [
                 "session_record": {
                     "type": "object",
                     "description": (
-                        "Full session JSON. Required fields: date (YYYY-MM-DD), mode ('exercise' or "
-                        "'conversation'), topic. For exercise mode also include: paragraph_vi, "
-                        "vocab_reviewed, vocab_new_introduced, user_translation, correction_notes, "
+                        "Full session JSON. Required fields: date (YYYY-MM-DD), mode ('exercise', "
+                        "'conversation', or 'quiz'), topic. "
+                        "For exercise mode also include: paragraph_vi, vocab_reviewed, "
+                        "vocab_new_introduced, user_translation, correction_notes, "
                         "vocab_added_to_list, inspiration_source. "
                         "For conversation mode also include: conversation_summary, vocab_reviewed, "
-                        "vocab_new_introduced, correction_notes, vocab_added_to_list, inspiration_source."
+                        "vocab_new_introduced, correction_notes, vocab_added_to_list, inspiration_source. "
+                        "For quiz mode also include: cards_presented, correct_count, incorrect_count, "
+                        "vocab_reviewed, correction_notes, vocab_added_to_list."
                     )
                 },
                 "words_practiced": {
